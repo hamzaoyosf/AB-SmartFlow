@@ -441,7 +441,7 @@ const AppState = {
         this.switchMission();
     },
 
-    triggerPrimaryOCR() {
+    triggerPrimaryScanner() {
         const v = document.getElementById('vendor').value;
         const primary = FieldConfig[v]?.fields.find(f => f.isPrimary);
         if (!primary) return this.showToast('Select a vendor first', 'info');
@@ -450,102 +450,189 @@ const AppState = {
 };
 
 const ParserManager = {
+    // Legacy patterns for fallback or manual entry refinement if needed
     patterns: {
         ref: /PAE\d+/i,
         date: /\d{2}[\/\.-]\d{2}[\/\.-]\d{4}/,
-        etiquette: /(?:Etiquette|Etiquetto|No|Nr)[\s\S]{0,30}?(\d{2,6})/i,
-        qty: /(?:Quantite|Qty|Quantit|Qte)[\s\S]{0,30}?(\d{1,5})/i,
-        generic3: /\b(\d{3})\b/
     },
 
-    distribute(text) {
-        // Diagnostic Logging
-        console.group("🚀 SMART OCR PARSER");
-        console.log("Raw OCR Result:", text);
+    /**
+     * SmartDistributor: Vendor-specific parsing logic
+     */
+    smartDistributor(text) {
+        console.group("🚀 SMART DISTRIBUTOR");
+        console.log("Scanned Text:", text);
 
+        const vendor = document.getElementById('vendor').value;
+        const config = FieldConfig[vendor];
+        let primaryFieldId = config?.fields.find(f => f.isPrimary)?.id;
         let matchedSomething = false;
-        const v = document.getElementById('vendor').value;
-        const config = FieldConfig[v];
 
-        // 1. Reference (Ref #)
-        const refMatch = text.match(this.patterns.ref);
-        if (refMatch) {
-            const val = refMatch[0].toUpperCase();
-            console.log("✅ Matched Reference:", val);
-            document.getElementById('ref-number').value = val;
-            AppState.flashField('ref-number');
-            AppState.switchMission();
-            matchedSomething = true;
-        }
+        // Utility to check duplicates
+        const checkDuplicate = (val, fieldKey) => {
+            const boxes = AppState.missions[AppState.currentMissionKey] || [];
+            return boxes.some(b => b.dynamicData[fieldKey] === val);
+        };
 
-        // 2. Date
-        const dateMatch = text.match(this.patterns.date);
-        if (dateMatch) {
-            const formatted = this.formatDateForInput(dateMatch[0]);
-            if (formatted) {
-                console.log("✅ Matched Date:", formatted);
-                const dateField = document.getElementById('date-ar');
-                if (dateField) {
-                    dateField.value = formatted;
-                    AppState.flashField('date-ar');
-                    matchedSomething = true;
+        const handleDuplicate = (val) => {
+            if (window.navigator?.vibrate) window.navigator.vibrate([200, 100, 200]);
+            AppState.showToast('هذا الملصق ممسوح مسبقاً!', 'danger');
+            // We don't clear the field, just alert.
+        };
+
+        // VENDOR LOGIC: One Tech
+        if (vendor === 'One Tech') {
+            const parts = text.split('@');
+            let batchData = { ref: '', lot: '', qty: '', label: '' };
+            let hasS = false;
+
+            parts.forEach(p => {
+                const part = p.trim();
+                if (part.startsWith('30S')) batchData.ref = part.substring(3);
+                else if (part.startsWith('H')) batchData.lot = part.substring(1);
+                else if (part.startsWith('Q')) batchData.qty = part.substring(1);
+                else if (part.startsWith('S')) {
+                    batchData.label = part.substring(1);
+                    hasS = true;
                 }
-            }
-        }
+            });
 
-        // 3. Quantity (Qty Checked) - Priority over lone 3-digit numbers
-        const qtyMatch = text.match(this.patterns.qty);
-        if (qtyMatch) {
-            const val = qtyMatch[1];
-            console.log("✅ Matched Quantity:", val);
-            const qtyField = config?.fields.find(f => f.isQtySum);
-            if (qtyField) {
-                document.getElementById(qtyField.id).value = val;
-                AppState.flashField(qtyField.id);
+            // Duplicate Check on 'S' (Serial)
+            if (hasS && checkDuplicate(batchData.label, 'N.Etiquette')) {
+                handleDuplicate(batchData.label);
+                console.groupEnd();
+                return; // Stop processing
+            }
+
+            // Populate Fields
+            if (batchData.ref) {
+                document.getElementById('ref-number').value = batchData.ref;
+                AppState.flashField('ref-number');
+                matchedSomething = true;
+            }
+            if (batchData.lot) {
+                document.getElementById('lot-num-lat').value = batchData.lot;
+                AppState.flashField('lot-num-lat');
+                matchedSomething = true;
+            }
+            if (batchData.qty) {
+                document.getElementById('qty-checked-lat').value = batchData.qty;
+                AppState.flashField('qty-checked-lat');
                 AppState.runAutoCalc();
                 matchedSomething = true;
             }
+            if (batchData.label) {
+                document.getElementById('etiquette-lat').value = batchData.label;
+                AppState.flashField('etiquette-lat');
+                matchedSomething = true;
+            }
+
+            console.groupEnd();
+
+            if (matchedSomething) {
+                AppState.playBeep();
+                AppState.switchMission();
+                // Auto-close ONLY if ALL 4 fields are filled
+                if (batchData.ref && batchData.lot && batchData.qty && batchData.label) {
+                    setTimeout(() => ScannerManager.closeModal(), 600);
+                }
+            } else {
+                AppState.showToast('Unknown sequence', 'info');
+            }
+            return; // Exit One Tech block early
         }
 
-        // 4. N.Etiquette / Label Number
-        let etiMatch = text.match(this.patterns.etiquette);
-        let etiValue = etiMatch ? etiMatch[1] : null;
+        // VENDOR LOGIC: Martur Fompak
+        else if (vendor === 'Martur Fompak') {
+            const snMatch = text.match(/\b\d{10}\b/); // 10-digit numeric
+            const batchMatch = text.match(/\bM\w+\b/i); // Starts with M
 
-        if (!etiValue) {
-            // Standalone 3-digit fallback only if not already used for Qty
-            const fallMatch = text.match(this.patterns.generic3);
-            if (fallMatch && (!matchedSomething || !text.includes(fallMatch[0]))) {
-                etiValue = fallMatch[1];
+            if (snMatch) {
+                const val = snMatch[0];
+                if (checkDuplicate(val, 'Serial Number')) {
+                    handleDuplicate(val);
+                } else {
+                    document.getElementById('serial-lat').value = val;
+                    AppState.flashField('serial-lat');
+                    matchedSomething = true;
+                }
+            }
+            if (batchMatch) {
+                document.getElementById('batch-num-lat').value = batchMatch[0];
+                AppState.flashField('batch-num-lat');
+                matchedSomething = true;
             }
         }
 
-        if (etiValue) {
-            console.log("✅ Matched Etiquette:", etiValue);
-            const etiField = config?.fields.find(f => f.id.includes('etiquette') || f.id.includes('serial') || f.isPrimary);
-            if (etiField) {
-                document.getElementById(etiField.id).value = etiValue;
-                AppState.flashField(etiField.id);
-                matchedSomething = true;
+        // VENDOR LOGIC: Voltaira or Gentherm
+        else if (vendor === 'Voltaira' || vendor === 'Gentherm Vietnam') {
+            const val = text.trim();
+            // Prefix-based auto-fill
+            if (val.startsWith('PKG') || val.startsWith('P')) {
+                const targetId = vendor === 'Voltaira' ? 'package-id-lat' : 'delivery-note-lat';
+                const field = document.getElementById(targetId);
+                if (field) {
+                    if (checkDuplicate(val, vendor === 'Voltaira' ? 'Package ID' : 'Delivery Note')) {
+                        handleDuplicate(val);
+                    } else {
+                        field.value = val;
+                        AppState.flashField(targetId);
+                        matchedSomething = true;
+                    }
+                }
+            } else if (val.startsWith('DN') || val.startsWith('L')) {
+                const targetId = 'delivery-note-lat';
+                const field = document.getElementById(targetId);
+                if (field) {
+                    if (checkDuplicate(val, 'Delivery Note')) {
+                        handleDuplicate(val);
+                    } else {
+                        field.value = val;
+                        AppState.flashField(targetId);
+                        matchedSomething = true;
+                    }
+                }
+            } else {
+                // Default to primary if no prefix matches
+                const field = document.getElementById(primaryFieldId);
+                if (field) {
+                    if (checkDuplicate(val, config.fields.find(f => f.isPrimary).exportKey)) {
+                        handleDuplicate(val);
+                    } else {
+                        field.value = val;
+                        AppState.flashField(primaryFieldId);
+                        matchedSomething = true;
+                    }
+                }
             }
         }
 
         console.groupEnd();
 
-        if (!matchedSomething) {
-            AppState.showToast('No patterns found. Enter manually.', 'info');
+        if (matchedSomething) {
+            AppState.playBeep();
+            AppState.switchMission();
+            // Auto-close ONLY if primary field is filled
+            const primaryVal = document.getElementById(primaryFieldId)?.value;
+            if (primaryVal) {
+                setTimeout(() => ScannerManager.closeModal(), 500);
+            }
         } else {
-            AppState.showToast('Data distributed successfully');
+            AppState.showToast('Unknown format', 'info');
         }
     },
 
-    formatDateForInput(dateStr) {
+    formatDate(dateStr) {
         const parts = dateStr.split(/[\/\.-]/);
         if (parts.length === 3) {
-            // Standardize to DD/MM/YYYY or similar
-            const d = parts[0].padStart(2, '0');
-            const m = parts[1].padStart(2, '0');
+            let d = parts[0].padStart(2, '0');
+            let m = parts[1].padStart(2, '0');
             let y = parts[2];
-            if (y.length === 2) y = "20" + y; // Assume 20xx for YY
+            if (y.length === 2) y = "20" + y;
+            // Handle DD-MM-YYYY to YYYY-MM-DD
+            if (parseInt(d) > 31) { // Swap if year is first
+                [d, y] = [y, d];
+            }
             return `${y}-${m}-${d}`;
         }
         return null;
@@ -553,53 +640,63 @@ const ParserManager = {
 };
 
 const ScannerManager = {
-    stream: null,
+    scanner: null,
     targetFieldId: null,
 
     async openModal(fieldId) {
         this.targetFieldId = fieldId;
-        const modal = document.getElementById('ocr-modal');
+        const modal = document.getElementById('scanner-modal');
         modal.style.display = 'flex';
+
+        if (!this.scanner) {
+            this.scanner = new Html5Qrcode("reader");
+        }
+
+        const config = {
+            fps: 20,
+            qrbox: { width: 250, height: 250 },
+            aspectRatio: 1.0
+        };
+
         try {
-            this.stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment" }
-            });
-            document.getElementById('ocr-video').srcObject = this.stream;
+            await this.scanner.start(
+                { facingMode: "environment" },
+                config,
+                (text) => ParserManager.smartDistributor(text)
+            );
+            document.getElementById('scanner-status').textContent = "Scanning active...";
         } catch (err) {
-            AppState.showToast('Camera Error: ' + err.message, 'danger');
+            AppState.showToast('Camera Error: ' + err, 'danger');
             this.closeModal();
         }
     },
 
-    closeModal() {
-        const modal = document.getElementById('ocr-modal');
+    async closeModal() {
+        const modal = document.getElementById('scanner-modal');
         modal.style.display = 'none';
-        if (this.stream) {
-            this.stream.getTracks().forEach(t => t.stop());
-            this.stream = null;
+        if (this.scanner) {
+            try {
+                await this.scanner.stop();
+            } catch (e) { console.warn("Scanner stop failed", e); }
         }
-    },
-
-    async capture() {
-        const video = document.getElementById('ocr-video');
-        const spinner = document.getElementById('ocr-loading');
-        const canvas = document.getElementById('ocr-canvas');
-        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-
-        spinner.style.display = 'flex';
-        try {
-            const result = await Tesseract.recognize(canvas, 'eng');
-            const txt = result.data.text.trim();
-            if (txt) {
-                ParserManager.distribute(txt);
-                this.closeModal();
-            } else {
-                AppState.showToast('Reading failed, try again', 'danger');
-            }
-        } catch (e) { AppState.showToast('OCR Error', 'danger'); }
-        finally { spinner.style.display = 'none'; }
     }
+};
+
+// Add Audio Utility to AppState
+AppState.playBeep = function () {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime); // A5 note
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.1);
+    } catch (e) { console.error("Audio error", e); }
 };
 
 const ExportManager = {

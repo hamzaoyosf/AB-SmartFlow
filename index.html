@@ -7,7 +7,7 @@
     <title>AB Serve - Flagship QA</title>
     <link rel="stylesheet" href="style.css">
     <!-- Dependencies -->
-    <script src="https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
@@ -87,7 +87,7 @@
             <!-- Counter Section (Control Pods) -->
             <section class="card-flagship">
                 <!-- FLAGSHIP SCANNER BUTTON -->
-                <button class="btn-scanner-flagship" onclick="AppState.triggerPrimaryOCR()">
+                <button class="btn-scanner-flagship" onclick="AppState.triggerPrimaryScanner()">
                     <span>📷 SMART SCAN (تفعيل الكاميرا)</span>
                 </button>
 
@@ -170,17 +170,17 @@
         </footer>
     </div>
 
-    <!-- OCR Modal Overlay -->
-    <div id="ocr-modal" class="modal-overlay" style="display: none;">
+    <!-- Scanner Modal Overlay -->
+    <div id="scanner-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content">
             <div
                 style="padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin:0; font-family: 'Readex Pro'; font-weight: 700;">OCR SCANNER (ماسح النصوص)</h3>
+                <h3 style="margin:0; font-family: 'Readex Pro'; font-weight: 700;">QR/BARCODE SCANNER</h3>
                 <button onclick="ScannerManager.closeModal()" class="btn-minimal-link"
                     style="font-size: 1.5rem;">✕</button>
             </div>
             <div class="camera-preview">
-                <video id="ocr-video" autoplay playsinline muted></video>
+                <div id="reader"></div>
                 <div class="scanner-hud">
                     <div class="hud-corner hud-top-left"></div>
                     <div class="hud-corner hud-top-right"></div>
@@ -189,15 +189,11 @@
                     <div class="hud-scan-line"></div>
                 </div>
             </div>
-            <div id="ocr-loading"
-                style="display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.9); z-index: 10; flex-direction: column; align-items: center; justify-content: center;">
-                <div class="loading-spinner"></div>
-                <p style="color: var(--primary-blue); font-weight: 700; font-family: 'Inter';">ANALYZING...</p>
-            </div>
             <div class="modal-controls">
-                <button class="btn btn-primary full-width" style="height: 60px; border-radius: 16px;"
-                    onclick="ScannerManager.capture()">تحليل (CAPTURE & PROCESS)</button>
-                <canvas id="ocr-canvas" style="display: none;"></canvas>
+                <p id="scanner-status"
+                    style="text-align: center; font-size: 0.9rem; opacity: 0.7; margin-bottom: 10px;">
+                    Position code within frame
+                </p>
             </div>
         </div>
     </div>
