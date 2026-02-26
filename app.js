@@ -483,13 +483,13 @@ const ParserManager = {
         // VENDOR LOGIC: One Tech
         if (vendor === 'One Tech') {
             const parts = text.split('@');
-            let batchData = { ref: '', lot: '', qty: '', label: '' };
+            let batchData = { lot: '', qty: '', label: '' };
             let hasS = false;
 
             parts.forEach(p => {
                 const part = p.trim();
-                if (part.startsWith('30S')) batchData.ref = part.substring(3);
-                else if (part.startsWith('H')) batchData.lot = part.substring(1);
+                // Ignore 30S (Reference is manual)
+                if (part.startsWith('H')) batchData.lot = part.substring(1);
                 else if (part.startsWith('Q')) batchData.qty = part.substring(1);
                 else if (part.startsWith('S')) {
                     batchData.label = part.substring(1);
@@ -504,12 +504,7 @@ const ParserManager = {
                 return; // Stop processing
             }
 
-            // Populate Fields
-            if (batchData.ref) {
-                document.getElementById('ref-number').value = batchData.ref;
-                AppState.flashField('ref-number');
-                matchedSomething = true;
-            }
+            // Populate Fields (Excluding Reference)
             if (batchData.lot) {
                 document.getElementById('lot-num-lat').value = batchData.lot;
                 AppState.flashField('lot-num-lat');
@@ -532,8 +527,8 @@ const ParserManager = {
             if (matchedSomething) {
                 AppState.playBeep();
                 AppState.switchMission();
-                // Auto-close ONLY if ALL 4 fields are filled
-                if (batchData.ref && batchData.lot && batchData.qty && batchData.label) {
+                // Auto-close ONLY if these 3 specific fields are filled
+                if (batchData.lot && batchData.qty && batchData.label) {
                     setTimeout(() => ScannerManager.closeModal(), 600);
                 }
             } else {
