@@ -119,6 +119,7 @@ const AppState = {
     setupEventListeners() {
         document.getElementById('defects-images').addEventListener('change', (e) => this.handleImageUpload(e));
         document.getElementById('add-to-report').addEventListener('click', () => this.handleSaveAction());
+        document.getElementById('gen-img').addEventListener('click', () => ExportManager.exportReportAsImage());
         document.getElementById('gen-pdf').addEventListener('click', () => ExportManager.generatePDF());
         document.getElementById('share-whatsapp').addEventListener('click', () => ExportManager.shareWhatsApp());
 
@@ -279,12 +280,29 @@ const AppState = {
         setTimeout(() => field.classList.remove('flash-success'), 1500);
     },
 
-    handleSaveAction() {
-        const data = this.captureFormData();
+    async handleSaveAction() {
+        const v = document.getElementById('vendor').value;
+        const primary = FieldConfig[v]?.fields.find(f => f.isPrimary);
+        const primaryVal = primary ? document.getElementById(primary.id).value.trim() : null;
+
+        let isSansGalia = false;
+        if (primary && !primaryVal && !this.editingBoxId) {
+            const confirmed = await ModalManager.showConfirm(
+                'Sans Galia',
+                'بعض المعطيات فارغة. هل تريد الحفظ كـ "Sans Galia"؟'
+            );
+            if (confirmed) {
+                isSansGalia = true;
+            } else {
+                return;
+            }
+        }
+
+        const data = this.captureFormData(isSansGalia);
         if (!data) return;
 
         const boxes = this.missions[this.currentMissionKey] || [];
-        const isDup = boxes.some(b => b.id !== this.editingBoxId && JSON.stringify(b.dynamicData) === JSON.stringify(data.dynamicData));
+        const isDup = boxes.some(b => b.id !== this.editingBoxId && !b.isSansGalia && JSON.stringify(b.dynamicData) === JSON.stringify(data.dynamicData));
 
         if (isDup && !this.editingBoxId) {
             return this.showToast('⚠️ خطأ: بيانات هذا الصندوق مكررة!', 'danger');
@@ -307,7 +325,7 @@ const AppState = {
         this.updateTotalSummary();
     },
 
-    captureFormData() {
+    captureFormData(isSansGalia = false) {
         const v = document.getElementById('vendor').value;
         const c = document.getElementById('client')?.value;
         const r = document.getElementById('ref-number').value;
@@ -320,7 +338,8 @@ const AppState = {
             vendor: v, client: c, ref: r, part: document.getElementById('part-name').value,
             shift: { from: document.getElementById('shift-from').value, to: document.getElementById('shift-to').value },
             dynamicData: {}, ok: this.counters.ok, nok: this.counters.nok,
-            defects: [], comments: document.getElementById('comments').value, images: [...this.tempImages]
+            defects: [], comments: document.getElementById('comments').value, images: [...this.tempImages],
+            isSansGalia: isSansGalia
         };
 
         config.fields.forEach(f => data.dynamicData[f.exportKey] = document.getElementById(f.id).value);
@@ -353,20 +372,17 @@ const AppState = {
         const boxes = this.missions[this.currentMissionKey] || [];
         if (boxes.length === 0) return list.innerHTML = '<div class="empty-state">لا توجد بيانات (No Data Found)</div>';
 
-        const display = this.showAllHistory ? [...boxes].reverse() : [...boxes].slice(-3).reverse();
-        list.innerHTML = display.map(box => `
-            <div class="history-card ${box.nok > 0 ? 'card-danger' : ''}">
-                <div class="header-row">
-                    <div style="font-weight:700; font-family:'Inter'; color:var(--primary-blue);">${Object.values(box.dynamicData)[0]}</div>
-                    <div style="display:flex; gap:8px;">
-                        <span class="badge badge-ok">OK: ${box.ok}</span>
-                        ${box.nok > 0 ? `<span class="badge card-badge-nok">NOK: ${box.nok}</span>` : ''}
-                    </div>
-                </div>
-                <div style="font-size:0.8rem; margin:8px 0; opacity:0.7;">
-                    ${box.part} | Ref: ${box.ref}
-                </div>
-                <div class="card-actions">
+        const display = this.showAllHistory ? [...boxes] : [...boxes].slice(-5);
+        list.innerHTML = display.map((box, idx) => `
+            <div class="grid-row ${box.nok > 0 ? 'card-danger' : ''}">
+                <span class="grid-col">${idx + 1}</span>
+                <span class="grid-col">${box.ref}</span>
+                <span class="grid-col">${Object.values(box.dynamicData)[0]}</span>
+                <span class="grid-col">${box.dynamicData['Lot Number'] || box.dynamicData['Batch Number'] || '-'}</span>
+                <span class="grid-col" style="color:var(--accent); font-weight:700;">${box.ok}</span>
+                <span class="grid-col" style="color:var(--nok-red); font-weight:700;">${box.nok}</span>
+                <span class="grid-col">${box.reworked || 0}</span>
+                <div class="grid-col action-col">
                     <button class="action-btn" onclick="AppState.editRecord(${box.id})">✏️</button>
                     <button class="action-btn" style="color:var(--nok-red)" onclick="AppState.deleteRecord(${box.id})">🗑️</button>
                 </div>
@@ -403,8 +419,12 @@ const AppState = {
         this.toggleHeader(false);
     },
 
-    deleteRecord(id) {
-        if (!confirm('حذف هذا السجل؟')) return;
+    async deleteRecord(id) {
+        const confirmed = await ModalManager.showConfirm(
+            'حذف (Delete)',
+            'هل أنت متأكد من حذف هذا السجل؟\n(Are you sure you want to delete this record?)'
+        );
+        if (!confirmed) return;
         this.missions[this.currentMissionKey] = this.missions[this.currentMissionKey].filter(b => b.id !== id);
         this.saveToStorage();
         this.renderScannedList();
@@ -446,6 +466,33 @@ const AppState = {
         const primary = FieldConfig[v]?.fields.find(f => f.isPrimary);
         if (!primary) return this.showToast('Select a vendor first', 'info');
         ScannerManager.openModal(primary.id);
+    }
+};
+
+const ModalManager = {
+    showConfirm(title, message) {
+        return new Promise((resolve) => {
+            const modal = document.getElementById('custom-confirm-modal');
+            const titleEl = document.getElementById('confirm-title');
+            const msgEl = document.getElementById('confirm-msg');
+            const yesBtn = document.getElementById('confirm-yes');
+            const noBtn = document.getElementById('confirm-no');
+
+            titleEl.textContent = title;
+            msgEl.textContent = message;
+            modal.style.display = 'flex';
+
+            const handleResponse = (result) => {
+                modal.style.display = 'none';
+                yesBtn.onclick = null;
+                noBtn.onclick = null;
+                resolve(result);
+            };
+
+            yesBtn.onclick = () => handleResponse(true);
+            noBtn.onclick = () => handleResponse(false);
+            modal.onclick = (e) => { if (e.target === modal) handleResponse(false); };
+        });
     }
 };
 
@@ -695,26 +742,311 @@ AppState.playBeep = function () {
 };
 
 const ExportManager = {
-    generatePDF() {
-        const boxes = AppState.missions[AppState.currentMissionKey];
-        if (!boxes || boxes.length === 0) return AppState.showToast('No Data', 'info');
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF();
-        doc.text(`QA REPORT - ${boxes[0].vendor}`, 105, 15, { align: 'center' });
-        doc.autoTable({
-            startY: 25,
-            head: [['ID', 'OK', 'NOK']],
-            body: boxes.map(b => [Object.values(b.dynamicData)[0], b.ok, b.nok])
-        });
-        doc.save(`QA_Report.pdf`);
-        AppState.showToast('تم إعداد التقرير بنجاح (PDF Ready)');
+    vendorTableConfig: {
+        "One Tech": ["N.Etiquette", "Lot Number", "Date"],
+        "Martur Fompak": ["Serial Number", "Batch Number", "Date"],
+        "Gentherm Vietnam": ["Delivery Note", "Batch Number", "Date"],
+        "Voltaira": ["Delivery Note", "Batch Number", "SUT", "Package ID", "Date"],
+        "Default": ["Reference", "Batch Number", "Date"]
     },
-    shareWhatsApp() {
+
+    async exportReportAsImage() {
         const boxes = AppState.missions[AppState.currentMissionKey];
-        if (!boxes || boxes.length === 0) return;
-        let msg = `*QA Log*\n*Vendor:* ${boxes[0].vendor}\n---\n`;
-        boxes.forEach(b => msg += `📦 ${Object.values(b.dynamicData)[0]} - OK: ${b.ok}\n`);
-        window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`);
+        if (!boxes || boxes.length === 0) return AppState.showToast('لا توجد بيانات (No Data)', 'info');
+
+        const vendor = document.getElementById('vendor').value;
+        const client = document.getElementById('client')?.value || '-';
+        const ref = document.getElementById('ref-number').value || '-';
+        const inspector = document.getElementById('inspector-name').value || '-';
+        const part = document.getElementById('part-name').value || '-';
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-GB');
+
+        // 1. POPULATE TEMPLATE (HIDDEN)
+        document.getElementById('rep-date-val').textContent = dateStr;
+        document.getElementById('rep-shift-start').textContent = document.getElementById('shift-from').value;
+        document.getElementById('rep-shift-end').textContent = document.getElementById('shift-to').value;
+        document.getElementById('rep-inspector-val').textContent = inspector;
+        document.getElementById('rep-client-val').textContent = client;
+        document.getElementById('rep-vendor-val').textContent = vendor;
+        document.getElementById('rep-ref-val').textContent = ref;
+        document.getElementById('rep-part-val').textContent = part;
+
+        const uniqueDefectsSet = new Set();
+        boxes.forEach(box => box.defects.forEach(d => uniqueDefectsSet.add(d.name)));
+        const uniqueDefects = Array.from(uniqueDefectsSet);
+
+        const dataKeys = this.vendorTableConfig[vendor] || this.vendorTableConfig["Default"];
+        const dataColCount = dataKeys.length;
+        const defectColCount = uniqueDefects.length;
+
+        // Dynamic Grid Template: N° column (40px) + Data Cols + Quantities + Defects
+        const template = `40px repeat(${dataColCount}, 1fr) 60px 60px 75px ${defectColCount > 0 ? `repeat(${defectColCount}, 45px)` : ''}`;
+        const templateTag = document.getElementById('final-report-template');
+        templateTag.style.setProperty('--grid-columns-template', template);
+
+        const totalPixelsEstimate = 40 + (dataColCount * 120) + 195 + (defectColCount * 45);
+        const dataPixels = 40 + (dataColCount * 120) + 195;
+        const dataSectionPercent = (dataPixels / totalPixelsEstimate) * 100;
+        templateTag.style.setProperty('--data-section-width', `${dataSectionPercent}%`);
+        templateTag.style.setProperty('--defect-section-width', `${100 - dataSectionPercent}%`);
+
+        // Ensure "List of defects" only shows if there are defect columns
+        const defectHeaderTitle = document.querySelector('.header-main-title:last-child');
+        if (defectHeaderTitle) {
+            defectHeaderTitle.style.display = defectColCount > 0 ? 'flex' : 'none';
+        }
+
+        // 4. INJECT HEADERS
+        const headerContainer = document.getElementById('rep-dynamic-column-headers');
+        headerContainer.innerHTML = '';
+
+        // N° Header
+        const nDiv = document.createElement('div');
+        nDiv.textContent = 'N°';
+        headerContainer.appendChild(nDiv);
+
+        // Data Headers (Bilingual Mapping)
+        const bilingualHeaderMap = {
+            "N.Etiquette": "N.Etiquette / Label",
+            "Lot Number": "N° Lot / Lot Number",
+            "Batch Number": "N° Lot / Batch Number",
+            "Date": "Date",
+            "Serial Number": "N° Série / Serial Number",
+            "Delivery Note": "BL / Delivery Note",
+            "SUT": "SUT / SUT",
+            "Package ID": "ID Colis / Package ID",
+            "Reference": "Référence / Reference"
+        };
+
+        dataKeys.forEach(key => {
+            const div = document.createElement('div');
+            div.textContent = bilingualHeaderMap[key] || key;
+            headerContainer.appendChild(div);
+        });
+
+        const qtyHeaders = [
+            { fr: 'Qté triée', en: 'Checked' },
+            { fr: 'Qté NOK', en: '' },
+            { fr: 'Qté retouchée', en: 'Reworked' }
+        ];
+        qtyHeaders.forEach(h => {
+            const div = document.createElement('div');
+            div.innerHTML = h.en ? `${h.fr}<br>${h.en}` : h.fr;
+            headerContainer.appendChild(div);
+        });
+
+        uniqueDefects.forEach(defect => {
+            const div = document.createElement('div');
+            div.textContent = defect;
+            div.style.fontSize = '8px';
+            headerContainer.appendChild(div);
+        });
+
+        // 5. INJECT ROWS
+        const rowsContainer = document.getElementById('rep-grid-rows-container');
+        rowsContainer.innerHTML = '';
+        boxes.forEach((box, idx) => {
+            const row = document.createElement('div');
+            row.className = `rep-grid-row ${box.isSansGalia ? 'sans-galia' : ''}`;
+
+            if (box.isSansGalia) {
+                // N° Cell
+                const nCell = document.createElement('div');
+                nCell.textContent = idx + 1;
+                row.appendChild(nCell);
+
+                // Container for Merged Sans Galia (to keep black border-right)
+                const container = document.createElement('div');
+                container.style.gridColumn = `span ${dataColCount}`;
+                container.style.display = 'flex';
+                container.style.alignItems = 'center';
+                container.style.justifyContent = 'center';
+                container.style.padding = '0';
+
+                const blueBox = document.createElement('div');
+                blueBox.className = 'merged-data-cell';
+                blueBox.style.width = 'calc(100% - 12px)';
+                blueBox.style.height = 'calc(100% - 6px)';
+                blueBox.textContent = 'Sans Galia';
+                container.appendChild(blueBox);
+                row.appendChild(container);
+            } else {
+                // N° Cell
+                const nCell = document.createElement('div');
+                nCell.textContent = idx + 1;
+                row.appendChild(nCell);
+
+                // Data Cells
+                dataKeys.forEach(key => {
+                    const div = document.createElement('div');
+                    let val = box.dynamicData[key] || '';
+                    if (key.toLowerCase().includes('date') && val && val.includes('-')) {
+                        const parts = val.split('-');
+                        if (parts.length === 3) val = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    }
+                    div.textContent = val;
+                    row.appendChild(div);
+                });
+            }
+
+            // Qty Cells (Shared for both modes)
+            [box.ok + box.nok, box.nok, box.reworked || 0].forEach(val => {
+                const div = document.createElement('div');
+                div.textContent = val;
+                row.appendChild(div);
+            });
+
+            // Defect Matrix
+            uniqueDefects.forEach(defect => {
+                const div = document.createElement('div');
+                const dMatch = box.defects.find(d => d.name === defect);
+                div.textContent = dMatch ? dMatch.qty : '';
+                if (dMatch) div.style.backgroundColor = '#fee2e2';
+                row.appendChild(div);
+            });
+            rowsContainer.appendChild(row);
+        });
+
+        // 6. FOOTER & GALLERY (Conditional Visibility)
+        const commentsInput = document.getElementById('comments').value;
+        const allComments = boxes.map(b => b.comments).filter(c => c && c.trim() !== '');
+        const hasAnyComments = (commentsInput && commentsInput.trim() !== '') || allComments.length > 0;
+
+        const allImages = boxes.reduce((acc, b) => acc.concat(b.images || []), []);
+        const hasAnyImages = AppState.tempImages.length > 0 || allImages.length > 0;
+
+        const commentsSection = document.querySelector('.rep-footer-top');
+        const commentsVal = document.getElementById('rep-comments-val');
+        if (hasAnyComments) {
+            commentsSection.style.display = 'block';
+            commentsVal.textContent = commentsInput || allComments.join(' | ');
+        } else {
+            commentsSection.style.display = 'none';
+        }
+
+        const evidenceSection = document.querySelector('.rep-evidence-section');
+        const gallery = document.getElementById('rep-gallery');
+        gallery.innerHTML = '';
+        if (hasAnyImages) {
+            evidenceSection.style.display = 'block';
+            const imagesToRender = AppState.tempImages.length > 0 ? AppState.tempImages : allImages;
+            imagesToRender.forEach(imgData => {
+                const img = document.createElement('img');
+                img.src = imgData;
+                img.crossOrigin = "anonymous";
+                gallery.appendChild(img);
+            });
+        } else {
+            evidenceSection.style.display = 'none';
+        }
+
+        // Hide entire footer if both are empty
+        const reportFooter = document.querySelector('.rep-footer');
+        reportFooter.style.display = (hasAnyComments || hasAnyImages) ? 'block' : 'none';
+
+        // 2. CAPTURE FOR PREVIEW
+        AppState.showToast('جاري تحضير المعاينة (Preparing Preview)...', 'info');
+
+        // Ensure template is rendered but keeps its off-screen position
+        templateTag.style.position = 'absolute';
+        templateTag.style.left = '-9999px';
+        templateTag.style.top = '0';
+        templateTag.style.visibility = 'visible';
+
+        try {
+            // Wait for all images in the template to load before capture
+            await this.waitForImages(templateTag);
+
+            const canvas = await html2canvas(templateTag, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: true, // Enabled for debugging as requested
+                useCORS: true,
+                allowTaint: true,
+                windowWidth: 1200,
+                windowHeight: templateTag.scrollHeight
+            });
+
+            templateTag.style.visibility = 'hidden';
+            templateTag.style.top = '-9999px';
+
+            this.showPreview(canvas, vendor, dateStr);
+        } catch (err) {
+            console.error("Preview Error:", err);
+            AppState.showToast('خطأ أثناء تحضير المعاينة', 'danger');
+            templateTag.style.visibility = 'hidden';
+            templateTag.style.top = '-9999px';
+        }
+    },
+
+    waitForImages(container) {
+        const images = container.querySelectorAll('img');
+        const promises = Array.from(images).map(img => {
+            if (img.complete) return Promise.resolve();
+            return new Promise(resolve => {
+                img.onload = img.onerror = resolve;
+            });
+        });
+        return Promise.all(promises);
+    },
+
+    showPreview(canvas, vendor, dateStr) {
+        const modal = document.getElementById('export-preview-modal');
+        const container = document.getElementById('preview-image-container');
+        container.innerHTML = '';
+
+        const img = new Image();
+        img.src = canvas.toDataURL('image/png');
+        container.appendChild(img);
+
+        modal.style.display = 'flex';
+
+        // Setup Button Handlers
+        document.getElementById('preview-edit-btn').onclick = () => {
+            modal.style.display = 'none';
+        };
+
+        document.getElementById('preview-save-btn').onclick = () => {
+            this.finalizeExport(canvas, vendor, dateStr);
+            modal.style.display = 'none';
+        };
+    },
+
+    async finalizeExport(canvas, vendor, dateStr) {
+        const dateFilename = dateStr.replace(/\//g, '-');
+        const filename = `Report_ABServe_${vendor}_${dateFilename}.png`;
+
+        try {
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            const file = new File([blob], filename, { type: 'image/png' });
+
+            if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                try {
+                    await navigator.share({ files: [file], title: 'QA Report' });
+                    AppState.playBeep();
+                } catch (shareErr) {
+                    if (shareErr.name !== 'AbortError') {
+                        this.downloadImage(canvas, filename);
+                        AppState.playBeep();
+                    }
+                }
+            } else {
+                this.downloadImage(canvas, filename);
+                AppState.playBeep();
+            }
+        } catch (err) {
+            console.error("Finalize Export Error:", err);
+            AppState.showToast('خطأ أثناء الحفظ', 'danger');
+        }
+    },
+
+    downloadImage(canvas, filename) {
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        AppState.showToast('تم حفظ الصورة بنجاح (Image Saved)');
     }
 }
 
