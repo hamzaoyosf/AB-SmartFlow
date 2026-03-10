@@ -24,7 +24,9 @@
                 <div class="meta-line">
                     <div id="digital-clock" class="digital-clock">00:00</div>
                     <button onclick="AppState.toggleTheme()" class="btn-minimal-link"
-                        style="color: inherit; font-size: 1.1rem; padding: 0;">🌓</button>
+                        style="color: inherit; font-size: 1.1rem; padding: 0;">
+                        <img id="theme-toggle-img" src="media/sunIcon.png" alt="Theme Toggle" class="custom-icon">
+                    </button>
                 </div>
             </div>
 
@@ -64,8 +66,35 @@
                             <option value="Martur Fompak">Martur Fompak</option>
                             <option value="Gentherm Vietnam">Gentherm Vietnam</option>
                             <option value="Voltaira">Voltaira</option>
-                            <option value="Other">يدوي...</option>
+                            <option value="Manual">يدوي...</option>
                         </select>
+                    </div>
+                    <div id="manual-vendor-container" style="display: none; width: 100%;">
+                        <input type="text" id="manual-vendor-input" placeholder="اسم المورد (Vendor Name)"
+                            style="margin-top: 5px;">
+
+                        <div id="manual-fields-selector" style="margin-top: 15px;">
+                            <label style="text-align: right; font-size: 0.85rem; margin-bottom: 8px;">الحقول المطلوبة
+                                للتقرير (Report Fields):</label>
+                            <div class="checkbox-grid">
+                                <label><input type="checkbox" value="Etiquette"
+                                        onchange="AppState.renderDynamicFields('Manual')"> Etiquette</label>
+                                <label><input type="checkbox" value="Lot Number"
+                                        onchange="AppState.renderDynamicFields('Manual')"> Lot Number</label>
+                                <label><input type="checkbox" value="Batch Number"
+                                        onchange="AppState.renderDynamicFields('Manual')"> Batch Number</label>
+                                <label><input type="checkbox" value="Serial Number"
+                                        onchange="AppState.renderDynamicFields('Manual')"> Serial Number</label>
+                                <label><input type="checkbox" value="Delivery Note"
+                                        onchange="AppState.renderDynamicFields('Manual')"> Delivery Note</label>
+                                <label><input type="checkbox" value="SUT"
+                                        onchange="AppState.renderDynamicFields('Manual')"> SUT</label>
+                                <label><input type="checkbox" value="Package ID"
+                                        onchange="AppState.renderDynamicFields('Manual')"> Package ID</label>
+                                <label><input type="checkbox" value="Reference"
+                                        onchange="AppState.renderDynamicFields('Manual')"> Reference</label>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="input-group">
@@ -73,13 +102,19 @@
                     <div id="client-container">
                         <input type="text" id="client" placeholder="اسم العميل (Client Name)">
                     </div>
-                </div>
-                <div class="input-row">
-                    <div class="input-group"><label>Ref (المرجع)</label><input type="text" id="ref-number"
-                            list="ref-list" oninput="AppState.handleReferenceChange()" placeholder="Ref #"></div>
-                    <div class="input-group"><label>Designation (التعيين)</label><input type="text" id="part-name"
-                            placeholder="Part Name">
+                    <div id="manual-client-container" style="display: none; width: 100%;">
+                        <input type="text" id="manual-client-input" placeholder="اسم العميل (Client Name)"
+                            style="margin-top: 5px;">
                     </div>
+                </div>
+                <div class="input-group" style="margin-bottom: 16px;">
+                    <label>Ref (المرجع)</label>
+                    <input type="text" id="ref-number" list="ref-history" oninput="AppState.handleReferenceChange()"
+                        placeholder="Ref #">
+                </div>
+                <div class="input-group">
+                    <label>Designation (التعيين)</label>
+                    <input type="text" id="part-name" placeholder="Part Name" dir="ltr" style="text-align: left;">
                 </div>
             </section>
         </div>
@@ -87,10 +122,6 @@
         <main class="app-content">
             <!-- Counter Section (Control Pods) -->
             <section class="card-flagship">
-                <!-- FLAGSHIP SCANNER BUTTON -->
-                <button class="btn-scanner-flagship" onclick="AppState.triggerPrimaryScanner()">
-                    <span>📷 SMART SCAN (تفعيل الكاميرا)</span>
-                </button>
 
                 <div id="dynamic-fields-container">
                     <div class="empty-state">Select Vendor to Start</div>
@@ -130,17 +161,29 @@
             <section class="card-flagship">
                 <div class="input-group">
                     <label>DEFECT PHOTOS (صور العيوب)</label>
-                    <input type="file" id="defects-images" accept="image/*" multiple>
+                    <div class="photo-buttons-row">
+                        <button id="btn-capture" class="btn btn-secondary"
+                            onclick="document.getElementById('hidden-camera').click()">
+                            <img src="media/cameraIcon.png" class="custom-icon" alt="Camera">
+                            التقاط صورة
+                        </button>
+                        <input type="file" id="hidden-camera" accept="image/*" capture="environment"
+                            onchange="AppState.handleImageUpload(event)" style="display: none;">
+
+                        <button id="btn-upload" class="btn btn-secondary"
+                            onclick="document.getElementById('hidden-gallery').click()">
+                            <img src="media/folderIcon.png" class="custom-icon" alt="Folder">
+                            رفع من الجهاز
+                        </button>
+                        <input type="file" id="hidden-gallery" accept="image/*" multiple
+                            onchange="AppState.handleImageUpload(event)" style="display: none;">
+                    </div>
                     <div id="image-preview" style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap;"></div>
                 </div>
                 <div class="input-group">
                     <label>COMMENTS (الملاحظات)</label>
                     <textarea id="comments" rows="2" placeholder="أضف ملاحظة... (Note)"></textarea>
                 </div>
-                <button id="add-to-report" class="btn btn-success full-width"
-                    style="border-radius: 14px; height: 56px;">
-                    حفظ التقرير (Save Record)
-                </button>
             </section>
 
             <!-- History Section -->
@@ -179,145 +222,169 @@
                     <!-- History cards with dynamic 'card-danger' will be injected here -->
                 </div>
 
-                <div class="dashboard-summary-row">
-                    <span style="opacity: 0.8; font-size: 0.9rem;">العدد الإجمالي (TOTAL CHECKED):</span>
+                <div class="dashboard-summary-row"
+                    style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="opacity: 0.8; font-size: 0.9rem; text-align: right;">العدد الإجمالي (TOTAL
+                        CHECKED):</span>
                     <span id="total-qty-val"
-                        style="font-size: 1.4rem; font-weight: 800; font-family: 'Readex Pro';">0</span>
+                        style="font-size: 1.4rem; font-weight: 800; font-family: 'Readex Pro'; text-align: left;">0</span>
                 </div>
             </section>
         </main>
 
-        <footer style="padding: 16px; display: flex; gap: 12px; margin-bottom: 20px;">
-            <button id="gen-img" class="btn btn-primary" style="flex: 1; border-radius: 14px; background: #6366f1;">🖼️
-                حفظ كصورة (Image)</button>
-            <button id="gen-pdf" class="btn btn-primary" style="flex: 1; border-radius: 14px;">تقرير PDF (PDF)</button>
-            <button id="share-whatsapp" class="btn btn-whatsapp" style="flex: 1; border-radius: 14px;">واتساب
-                (WhatsApp)</button>
-        </footer>
-    </div>
-
-    <!-- Scanner Modal Overlay -->
-    <div id="scanner-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-content">
-            <div
-                style="padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin:0; font-family: 'Readex Pro'; font-weight: 700;">QR/BARCODE SCANNER</h3>
-                <button onclick="ScannerManager.closeModal()" class="btn-minimal-link"
-                    style="font-size: 1.5rem;">✕</button>
+        <!-- Floating Footer -->
+        <div class="app-footer-floating">
+            <div class="footer-left-group" style="align-items: center;">
+                <img src="media/imageIcon.png" id="export-img-btn" class="export-icon" alt="Export Image">
+                <img src="media/pdfIcon.png" id="export-pdf-btn" class="export-icon" alt="Export PDF">
             </div>
-            <div class="camera-preview">
-                <div id="reader"></div>
-                <div class="scanner-hud">
-                    <div class="hud-corner hud-top-left"></div>
-                    <div class="hud-corner hud-top-right"></div>
-                    <div class="hud-corner hud-bottom-left"></div>
-                    <div class="hud-corner hud-bottom-right"></div>
-                    <div class="hud-scan-line"></div>
-                </div>
-            </div>
-            <div class="modal-controls">
-                <p id="scanner-status"
-                    style="text-align: center; font-size: 0.9rem; opacity: 0.7; margin-bottom: 10px;">
-                    Position code within frame
-                </p>
+            <div class="footer-right-group">
+                <button id="btn-scan" class="btn btn-primary" onclick="AppState.triggerPrimaryScanner()">
+                    <img src="media/scanIcon.png" class="custom-icon" alt="Scan">
+                    مسح ذكي (Scan)
+                </button>
+                <button id="btn-save-box" class="btn btn-success" onclick="AppState.handleSaveAction()">
+                    <img src="media/saveIcon.png" class="custom-icon" alt="Save">
+                    حفظ الصندوق (Save)
+                </button>
             </div>
         </div>
-    </div>
 
-    <!-- Toast Container -->
-    <div id="toast-container" class="toast-container"></div>
-    <datalist id="ref-list"></datalist>
-
-    <!-- High-Fidelity Final Report Template (Bilingual) -->
-    <div id="final-report-template" class="report-container" style="position: absolute; left: -9999px; top: -9999px;">
-        <div class="report-inner">
-            <header class="rep-header">
-                <div class="rep-header-left">
-                    <div class="rep-meta-field"><strong>Date :</strong> <span id="rep-date-val">--/--/----</span></div>
-                    <div class="rep-meta-field"><strong>Horaire : DE :</strong> <span id="rep-shift-start">06:00</span>
-                        <strong>À :</strong> <span id="rep-shift-end">14:00</span>
-                    </div>
-                    <div class="rep-meta-field"><strong>Nom du Contrôleur :</strong> <span
-                            id="rep-inspector-val">-</span></div>
-                    <div class="rep-meta-field"><strong>Site client :</strong> <span id="rep-client-val">-</span></div>
+        <!-- Scanner Modal Overlay -->
+        <div id="scanner-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <div
+                    style="padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin:0; font-family: 'Readex Pro'; font-weight: 700;">QR/BARCODE SCANNER</h3>
+                    <button onclick="ScannerManager.closeModal()" class="btn-minimal-link"
+                        style="font-size: 1.5rem;">✕</button>
                 </div>
-                <div class="rep-header-center">
-                    <div class="rep-upper-meta">
-                        <div class="rep-meta-field"><strong>Fournisseur :</strong> <span id="rep-vendor-val">-</span>
+                <div class="camera-preview">
+                    <div id="reader"></div>
+                    <div class="scanner-hud">
+                        <div class="hud-corner hud-top-left"></div>
+                        <div class="hud-corner hud-top-right"></div>
+                        <div class="hud-corner hud-bottom-left"></div>
+                        <div class="hud-corner hud-bottom-right"></div>
+                        <div class="hud-scan-line"></div>
+                    </div>
+                </div>
+                <div class="modal-controls">
+                    <p id="scanner-status"
+                        style="text-align: center; font-size: 0.9rem; opacity: 0.7; margin-bottom: 10px;">
+                        Position code within frame
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Container -->
+        <div id="toast-container" class="toast-container"></div>
+        <datalist id="ref-history"></datalist>
+
+        <!-- High-Fidelity Final Report Template (Bilingual) -->
+        <div id="final-report-template" class="report-container"
+            style="position: absolute; left: -9999px; top: -9999px;">
+            <div class="report-inner">
+                <header class="rep-header">
+                    <div class="rep-header-left">
+                        <div class="rep-meta-field"><strong>Date :</strong> <span id="rep-date-val">--/--/----</span>
                         </div>
-                        <div class="rep-meta-field"><strong>Référence :</strong> <span id="rep-ref-val">-</span></div>
-                        <div class="rep-meta-field"><strong>Désignation :</strong> <span id="rep-part-val">-</span>
+                        <div class="rep-meta-field"><strong>Horaire : DE :</strong> <span
+                                id="rep-shift-start">06:00</span>
+                            <strong>À :</strong> <span id="rep-shift-end">14:00</span>
+                        </div>
+                        <div class="rep-meta-field"><strong>Nom du Contrôleur :</strong> <span
+                                id="rep-inspector-val">-</span></div>
+                        <div class="rep-meta-field"><strong>Site client :</strong> <span id="rep-client-val">-</span>
+                        </div>
+                    </div>
+                    <div class="rep-header-center">
+                        <div class="rep-upper-meta">
+                            <div class="rep-meta-field"><strong>Fournisseur :</strong> <span
+                                    id="rep-vendor-val">-</span>
+                            </div>
+                            <div class="rep-meta-field"><strong>Référence :</strong> <span id="rep-ref-val">-</span>
+                            </div>
+                            <div class="rep-meta-field"><strong>Désignation :</strong> <span id="rep-part-val">-</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="rep-header-right">
+                        <div class="rep-logo-box">
+                            <div class="rep-title-tag">RAPPORT AB SERVE FREE ZONE</div>
+                            <img src="media/logo.png" alt="AB Serve Logo" class="rep-logo-img">
+                        </div>
+                    </div>
+                </header>
+
+                <div class="rep-table-section">
+                    <div id="rep-grid" class="rep-grid">
+                        <!-- Row 0: Top categories (Service Details | List of Defects) -->
+                        <div class="rep-header-top" id="rep-header-top">
+                            <div id="rep-header-service"></div>
+                            <div id="rep-header-defects"></div>
+                        </div>
+                        <!-- Row 1: Sub-headers (column labels) -->
+                        <div class="rep-header-row" id="rep-sub-header-row">
+                            <!-- injected via JS -->
+                        </div>
+                        <!-- Data Rows -->
+                        <div id="rep-rows-container">
+                            <!-- injected via JS -->
                         </div>
                     </div>
                 </div>
-                <div class="rep-header-right">
-                    <div class="rep-logo-box">
-                        <div class="rep-title-tag">RAPPORT AB SERVE FREE ZONE</div>
-                        <img src="media/logo.png" alt="AB Serve Logo" class="rep-logo-img">
+
+                <footer class="rep-footer">
+                    <div class="rep-footer-top">
+                        <div class="rep-comments-box">
+                            <strong>Commentaires :</strong>
+                            <p id="rep-comments-val">Pas de notes supplémentaires / لا توجد ملاحظات إضافية</p>
+                        </div>
                     </div>
-                </div>
-            </header>
-
-            <div class="rep-table-section">
-                <!-- Main Header Structure -->
-                <div id="rep-main-grid-header" class="rep-grid-header-top">
-                    <div class="header-main-title left-section">Détails de la prestation / Service details:</div>
-                    <div class="header-main-title right-section">Liste des défauts / List of defects</div>
-                </div>
-                <!-- Dynamic Column Headers -->
-                <div id="rep-dynamic-column-headers" class="rep-grid-row sub-header">
-                    <!-- Injected via JS -->
-                </div>
-                <!-- Data Rows Container -->
-                <div id="rep-grid-rows-container">
-                    <!-- Injected via JS -->
-                </div>
-            </div>
-
-            <footer class="rep-footer">
-                <div class="rep-footer-top">
-                    <div class="rep-comments-box">
-                        <strong>Commentaires :</strong>
-                        <p id="rep-comments-val">Pas de notes supplémentaires / لا توجد ملاحظات إضافية</p>
+                    <div class="rep-evidence-section">
+                        <strong>Photos / Evidence :</strong>
+                        <div id="rep-gallery" class="rep-image-grid"></div>
                     </div>
-                </div>
-                <div class="rep-evidence-section">
-                    <strong>Photos / Evidence :</strong>
-                    <div id="rep-gallery" class="rep-image-grid"></div>
-                </div>
-            </footer>
+                </footer>
+            </div>
         </div>
-    </div>
 
-    <!-- Export Preview Modal -->
-    <div id="export-preview-modal" class="preview-modal" style="display: none;">
-        <div class="preview-content">
-            <div class="preview-header">
-                <h3>معاينة التقرير (Report Preview)</h3>
-            </div>
-            <div class="preview-body">
-                <div id="preview-image-container"></div>
-            </div>
-            <div class="preview-footer">
-                <button id="preview-edit-btn" class="btn btn-secondary">تعديل (Edit)</button>
-                <button id="preview-save-btn" class="btn btn-success">حفظ (Save)</button>
+        <!-- Export Preview Modal -->
+        <div id="export-preview-modal" class="preview-modal" style="display: none;">
+            <div class="preview-content">
+                <div class="preview-header">
+                    <h3>معاينة التقرير (Report Preview)</h3>
+                </div>
+                <div class="preview-body">
+                    <div id="preview-image-container"></div>
+                </div>
+                <div class="preview-footer">
+                    <button id="preview-edit-btn" class="btn btn-secondary">تعديل (Edit)</button>
+                    <button id="preview-save-btn" class="btn btn-success">حفظ (Save)</button>
+                    <button id="preview-wa-btn" class="btn"
+                        style="background-color: #25D366; color: white; display: flex; align-items: center; gap: 8px;">
+                        <img src="media/whatsappIcon.png" style="width:20px; height:20px;" alt="">
+                        إرسال واتساب (WhatsApp)
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
 
-    <script src="app.js"></script>
-    <!-- Modern Custom Confirm Modal -->
-    <div id="custom-confirm-modal" class="modal-overlay" style="display: none;">
-        <div class="confirm-card">
-            <div class="confirm-icon">❓</div>
-            <h3 id="confirm-title">تأكيد (Confirm)</h3>
-            <p id="confirm-msg"></p>
-            <div class="confirm-actions">
-                <button id="confirm-yes" class="btn btn-success">نعم (YES)</button>
-                <button id="confirm-no" class="btn btn-secondary">إلغاء (NO)</button>
+        <script src="app.js"></script>
+        <!-- Modern Custom Confirm Modal -->
+        <div id="custom-confirm-modal" class="modal-overlay" style="display: none;">
+            <div class="confirm-card">
+                <div class="confirm-icon">❓</div>
+                <h3 id="confirm-title">تأكيد (Confirm)</h3>
+                <p id="confirm-msg"></p>
+                <div class="confirm-actions">
+                    <button id="confirm-yes" class="btn btn-success">نعم (YES)</button>
+                    <button id="confirm-no" class="btn btn-secondary">إلغاء (NO)</button>
+                </div>
             </div>
         </div>
-    </div>
 
 </body>
 

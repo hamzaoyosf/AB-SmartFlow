@@ -2,11 +2,16 @@
  * AB Serve - QA Tracker Flagship Logic (Phase 8)
  */
 
+const REF_MAP = {
+    "PAE0001227": "CR3 Light Guide Top T1",
+    "PAE0001229": "CR3 Light Guide Bottom T1"
+};
+
 const FieldConfig = {
     'One Tech': {
         clients: ['Marelli', 'OP Mobility'],
         fields: [
-            { id: 'etiquette-lat', label: 'رقم الملصق (N.Etiquette)', exportKey: 'N.Etiquette', type: 'text', isPrimary: true },
+            { id: 'etiquette-lat', label: 'رقم الملصق (N.Etiquette)', exportKey: 'N.Etiquette', type: 'number', isPrimary: true },
             { id: 'lot-num-lat', label: 'رقم الدفعة (Lot Number)', exportKey: 'Lot Number', type: 'text' },
             { id: 'date-ar', label: 'تاريخ الإنتاج (Date)', exportKey: 'Date', type: 'date', sticky: true },
             { id: 'qty-checked-lat', label: 'الكمية المفحوصة (Qty Checked)', exportKey: 'Qty Checked', type: 'number', sticky: true, triggerCalc: true, isQtySum: true },
@@ -64,6 +69,7 @@ const AppState = {
         this.runPokaYokeTimer();
         setInterval(() => this.updateTime(), 30000);
         this.setupEventListeners();
+        this.populateRefHistory();
 
         const lastVendor = localStorage.getItem('qa_last_vendor') || 'One Tech';
         document.getElementById('vendor').value = lastVendor;
@@ -76,6 +82,14 @@ const AppState = {
     initTheme() {
         this.isDarkMode = localStorage.getItem('qa_theme') === 'dark';
         if (this.isDarkMode) document.body.classList.add('dark-mode');
+        const themeToggleImg = document.getElementById('theme-toggle-img');
+        if (themeToggleImg) {
+            if (document.body.classList.contains('dark-mode')) {
+                themeToggleImg.src = 'media/moonIcon.png';
+            } else {
+                themeToggleImg.src = 'media/sunIcon.png';
+            }
+        }
     },
 
     toggleTheme() {
@@ -83,6 +97,22 @@ const AppState = {
         document.body.classList.toggle('dark-mode');
         localStorage.setItem('qa_theme', this.isDarkMode ? 'dark' : 'light');
         this.showToast(this.isDarkMode ? "الوضع الليلي مفعّل" : "الوضع المضيء مفعّل", "info");
+        const themeToggleImg = document.getElementById('theme-toggle-img');
+        if (themeToggleImg) {
+            if (document.body.classList.contains('dark-mode')) {
+                themeToggleImg.src = 'media/moonIcon.png';
+            } else {
+                themeToggleImg.src = 'media/sunIcon.png';
+            }
+        }
+    },
+
+    populateRefHistory() {
+        const savedRefs = JSON.parse(localStorage.getItem('qa_ref_history') || '[]');
+        const datalist = document.getElementById('ref-history');
+        if (datalist) {
+            datalist.innerHTML = savedRefs.map(r => `<option value="${r}">`).join('');
+        }
     },
 
     loadFromStorage() {
@@ -101,7 +131,12 @@ const AppState = {
     updateTime() {
         const now = new Date();
         const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-        const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+        const day = String(now.getDate()).padStart(2, '0');
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const year = now.getFullYear();
+        const dateStr = `${day}/${month}/${year}`;
+
         document.getElementById('digital-clock').textContent = timeStr;
         document.getElementById('header-date-top').textContent = dateStr;
     },
@@ -117,11 +152,14 @@ const AppState = {
     },
 
     setupEventListeners() {
-        document.getElementById('defects-images').addEventListener('change', (e) => this.handleImageUpload(e));
-        document.getElementById('add-to-report').addEventListener('click', () => this.handleSaveAction());
-        document.getElementById('gen-img').addEventListener('click', () => ExportManager.exportReportAsImage());
-        document.getElementById('gen-pdf').addEventListener('click', () => ExportManager.generatePDF());
-        document.getElementById('share-whatsapp').addEventListener('click', () => ExportManager.shareWhatsApp());
+        const btnSaveBox = document.getElementById('btn-save-box');
+        if (btnSaveBox) btnSaveBox.addEventListener('click', () => this.handleSaveAction());
+
+        const exportImgBtn = document.getElementById('export-img-btn');
+        if (exportImgBtn) exportImgBtn.addEventListener('click', () => ExportManager.exportReportAsImage());
+
+        const exportPdfBtn = document.getElementById('export-pdf-btn');
+        if (exportPdfBtn) exportPdfBtn.addEventListener('click', () => ExportManager.generatePDF());
 
         document.getElementById('dynamic-fields-container').addEventListener('click', (e) => {
             if (e.target.closest('.btn-icon')) {
@@ -129,6 +167,42 @@ const AppState = {
                 ScannerManager.openModal(fieldId);
             }
         });
+
+        // Strict input rules
+        document.addEventListener('input', (e) => {
+            const el = e.target;
+            const stringFields = ['inspector-name', 'ref-number', 'part-name', 'lot-num-lat', 'batch-num-lat', 'serial-lat', 'delivery-note-lat', 'package-id-lat', 'sut-lat', 'dyn-ref-lat', 'manual-vendor-input', 'manual-client-input', 'client'];
+            if (stringFields.includes(el.id)) {
+                let start = el.selectionStart;
+                let end = el.selectionEnd;
+                let val = el.value.toUpperCase();
+                let cleanVal = el.id === 'inspector-name'
+                    ? val.replace(/[^A-Z0-9\-_/.+ ]/g, '')
+                    : val.replace(/[^A-Z0-9\-_/. ]/g, '');
+                if (el.value !== cleanVal) {
+                    el.value = cleanVal;
+                    try { el.setSelectionRange(start, end); } catch (ex) { }
+                } else if (el.value !== val) {
+                    el.value = val;
+                    try { el.setSelectionRange(start, end); } catch (ex) { }
+                }
+            } else if (el.type === 'number' || el.inputMode === 'numeric') {
+                const cleanVal = el.value.replace(/[^0-9]/g, '');
+                if (el.value !== cleanVal) el.value = cleanVal;
+            }
+
+            // Auto collapse setup section when user starts typing dynamic fields
+            const dynamicFieldsContainer = document.getElementById('dynamic-fields-container');
+            if (dynamicFieldsContainer && dynamicFieldsContainer.contains(el)) {
+                AppState.collapseSetupSection();
+            }
+        });
+    },
+
+    collapseSetupSection() {
+        if (!this.isHeaderCollapsed) {
+            this.toggleHeader(true);
+        }
     },
 
     toggleHeader(forceCollapse = null) {
@@ -138,11 +212,11 @@ const AppState = {
         const header = document.getElementById('floating-header');
 
         if (this.isHeaderCollapsed) {
-            details.classList.remove('expanded');
+            details.classList.add('collapsed');
             badgeIcon.textContent = '▼';
             header.style.boxShadow = '0 10px 30px rgba(0,0,0,0.1)';
         } else {
-            details.classList.add('expanded');
+            details.classList.remove('collapsed');
             badgeIcon.textContent = '▲';
             header.style.boxShadow = '0 15px 45px rgba(0,0,0,0.2)';
             this.updateSummaryBadge();
@@ -150,71 +224,110 @@ const AppState = {
     },
 
     updateSummaryBadge() {
-        const v = document.getElementById('vendor').value || 'M.S';
+        let v = document.getElementById('vendor').value || 'M.S';
+        if (v === 'Manual') v = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+
         const r = document.getElementById('ref-number').value || 'Ref';
         const p = document.getElementById('part-name').value || 'Unit';
         document.getElementById('badge-text').textContent = `${v} | ${r} | ${p}`;
     },
 
     handleVendorChange(val) {
-        if (val === 'Other') {
-            this.showManualInput('vendor', 'اسم المورد');
+        const manualVendorCtn = document.getElementById('manual-vendor-container');
+        const manualClientCtn = document.getElementById('manual-client-container');
+        const clientCtn = document.getElementById('client-container');
+
+        if (val === 'Manual') {
+            manualVendorCtn.style.display = 'block';
+            clientCtn.style.display = 'none';
+            manualClientCtn.style.display = 'block';
+            this.renderDynamicFields('Manual');
         } else {
+            manualVendorCtn.style.display = 'none';
+            manualClientCtn.style.display = 'none';
+            clientCtn.style.display = 'block';
+
             const config = FieldConfig[val];
             if (config) {
-                const ctn = document.getElementById('client-container');
-                ctn.innerHTML = `<select id="client" onchange="AppState.switchMission()" style="width:100%">
+                clientCtn.innerHTML = `<select id="client" onchange="AppState.handleClientChange(this.value)" style="width:100%">
                     ${config.clients.map(c => `<option value="${c}">${c}</option>`).join('')}
-                    <option value="Other">يدوي...</option>
+                    <option value="Manual">يدوي...</option>
                 </select>`;
                 this.renderDynamicFields(val);
             }
-            this.switchMission();
         }
+        this.switchMission();
         this.updateSummaryBadge();
     },
 
+    handleClientChange(val) {
+        const manualClientCtn = document.getElementById('manual-client-container');
+        if (val === 'Manual') {
+            manualClientCtn.style.display = 'block';
+        } else {
+            manualClientCtn.style.display = 'none';
+        }
+        this.switchMission();
+    },
+
     showManualInput(type, placeholder) {
-        const container = document.getElementById(`${type}-container`);
-        container.innerHTML = `
-            <div style="display:flex; gap:8px; width:100%;">
-                <input type="text" id="${type}" placeholder="${placeholder}">
-                <button class="btn-minimal-link" style="white-space:nowrap; color: var(--nok-red)" onclick="AppState.revertToDropdown('${type}')">✕</button>
-            </div>
-        `;
+        // Obsolete UI replacement with toggle approach
     },
 
     revertToDropdown(type) {
-        const container = document.getElementById(`${type}-container`);
-        if (type === 'vendor') {
-            container.innerHTML = `
-                <select id="vendor" onchange="AppState.handleVendorChange(this.value)">
-                    <option value="">Select Vendor...</option>
-                    <option value="One Tech">One Tech</option>
-                    <option value="Martur Fompak">Martur Fompak</option>
-                    <option value="Gentherm Vietnam">Gentherm Vietnam</option>
-                    <option value="Voltaira">Voltaira</option>
-                    <option value="Other">يدوي...</option>
-                </select>`;
-        } else {
-            container.innerHTML = `<input type="text" id="client" placeholder="Client Name">`;
-        }
+        // Obsolete UI replacement with toggle approach
     },
 
     renderDynamicFields(vendor) {
+        if (vendor === 'Manual') {
+            const checkedBoxes = Array.from(document.querySelectorAll('#manual-fields-selector input:checked')).map(cb => cb.value);
+            const manualFields = [];
+            const fieldMappings = {
+                'Etiquette': { id: 'etiquette-lat', label: 'رقم الملصق (N.Etiquette)', exportKey: 'N.Etiquette', type: 'number', isPrimary: true },
+                'Lot Number': { id: 'lot-num-lat', label: 'رقم الدفعة (Lot Number)', exportKey: 'Lot Number', type: 'text' },
+                'Batch Number': { id: 'batch-num-lat', label: 'رقم الدفعة (Batch Number)', exportKey: 'Batch Number', type: 'text' },
+                'Serial Number': { id: 'serial-lat', label: 'الرقم التسلسلي (Serial Number)', exportKey: 'Serial Number', type: 'text', isPrimary: true },
+                'Delivery Note': { id: 'delivery-note-lat', label: 'رقم الإرسالية (Delivery Note)', exportKey: 'Delivery Note', type: 'text', isPrimary: true },
+                'SUT': { id: 'sut-lat', label: 'SUT (SUT)', exportKey: 'SUT', type: 'text' },
+                'Package ID': { id: 'package-id-lat', label: 'معرف الحزمة (Package ID)', exportKey: 'Package ID', type: 'text' },
+                'Reference': { id: 'dyn-ref-lat', label: 'مرجع (Reference)', exportKey: 'Reference', type: 'text' }
+            };
+
+            checkedBoxes.forEach(cb => {
+                if (fieldMappings[cb]) manualFields.push(fieldMappings[cb]);
+            });
+
+            manualFields.push({ id: 'date-ar', label: 'تاريخ الإنتاج (Date)', exportKey: 'Date', type: 'date', sticky: true });
+            manualFields.push({ id: 'qty-checked-lat', label: 'الكمية المفحوصة (Qty Checked)', exportKey: 'Qty Checked', type: 'number', sticky: true, triggerCalc: true, isQtySum: true });
+            manualFields.push({ id: 'qty-reworked-lat', label: 'الكمية المعاد إصلاحها (Reworked)', exportKey: 'Qty Reworked', type: 'number' });
+
+            FieldConfig['Manual'] = { clients: ['Manual'], fields: manualFields };
+            ExportManager.vendorTableConfig['Manual'] = checkedBoxes.concat(['Date']);
+
+            this.currentMissionKey = `Manual_Manual_${document.getElementById('ref-number').value}`;
+        }
+
         const ctn = document.getElementById('dynamic-fields-container');
         const config = FieldConfig[vendor];
+        if (!config) { ctn.innerHTML = ''; return; }
+
         ctn.innerHTML = config.fields.map(f => `
             <div class="input-group">
                 <label for="${f.id}">${f.label}</label>
-                <input type="${f.type}" id="${f.id}" placeholder="${f.label}" 
+                <input type="${f.type}" ${f.type === 'number' ? 'inputmode="numeric"' : ''} id="${f.id}" placeholder="${f.label}" 
                        ${f.triggerCalc ? 'oninput="AppState.runAutoCalc()"' : ''}>
             </div>`).join('');
     },
 
     switchMission() {
-        const v = document.getElementById('vendor').value;
-        const c = document.getElementById('client')?.value;
+        let v = document.getElementById('vendor').value;
+        if (v === 'Manual') v = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+
+        let c = document.getElementById('client')?.value;
+        if (c === 'Manual' || document.getElementById('vendor').value === 'Manual') {
+            c = document.getElementById('manual-client-input').value.trim() || 'Manual';
+        }
+
         const r = document.getElementById('ref-number').value;
         if (!v || !c || !r) return;
 
@@ -323,15 +436,31 @@ const AppState = {
         this.smartReset();
         this.renderScannedList();
         this.updateTotalSummary();
+
+        // Save to Reference History
+        const r = document.getElementById('ref-number').value.trim().toUpperCase();
+        if (r) {
+            const savedRefs = JSON.parse(localStorage.getItem('qa_ref_history') || '[]');
+            if (!savedRefs.includes(r)) {
+                savedRefs.push(r);
+                localStorage.setItem('qa_ref_history', JSON.stringify(savedRefs));
+                this.populateRefHistory();
+            }
+        }
     },
 
     captureFormData(isSansGalia = false) {
-        const v = document.getElementById('vendor').value;
-        const c = document.getElementById('client')?.value;
+        let v = document.getElementById('vendor').value;
+        let c = document.getElementById('client')?.value;
+        const rootVendor = v; // keep root vendor for FieldConfig lookup
+
+        if (v === 'Manual') v = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+        if (c === 'Manual' || rootVendor === 'Manual') c = document.getElementById('manual-client-input').value.trim() || 'Manual';
+
         const r = document.getElementById('ref-number').value;
         if (!v || !c || !r) return this.showToast('بيانات الجلسة غير مكتملة', 'danger');
 
-        const config = FieldConfig[v];
+        const config = FieldConfig[rootVendor];
         const data = {
             id: this.editingBoxId || Date.now(),
             inspector: document.getElementById('inspector-name').value,
@@ -363,8 +492,11 @@ const AppState = {
         this.runAutoCalc();
 
         this.editingBoxId = null;
-        document.getElementById('add-to-report').textContent = 'حفظ التقرير (Save Record)';
-        document.getElementById('add-to-report').className = 'btn btn-success full-width';
+        const addBtn = document.getElementById('btn-save-box');
+        if (addBtn) {
+            addBtn.innerHTML = '<img src="media/saveIcon.png" class="custom-icon" alt="Save"> حفظ الصندوق (Save)';
+            addBtn.style.background = '';
+        }
     },
 
     renderScannedList() {
@@ -413,8 +545,11 @@ const AppState = {
             </div>`).join('');
 
         this.runAutoCalc();
-        document.getElementById('add-to-report').textContent = 'UPDATE RECORD';
-        document.getElementById('add-to-report').className = 'btn btn-primary full-width';
+        const addBtn = document.getElementById('btn-save-box');
+        if (addBtn) {
+            addBtn.innerHTML = '<img src="media/saveIcon.png" class="custom-icon" alt="Save"> تحديث الصندوق (Update)';
+            addBtn.style.background = 'var(--primary-blue)';
+        }
         window.scrollTo({ top: 0, behavior: 'smooth' });
         this.toggleHeader(false);
     },
@@ -434,17 +569,18 @@ const AppState = {
 
     updateTotalSummary() {
         const boxes = this.missions[this.currentMissionKey] || [];
-        const v = document.getElementById('vendor').value;
-        const key = FieldConfig[v]?.fields.find(f => f.isQtySum)?.exportKey;
-        const total = boxes.reduce((s, b) => s + (parseInt(b.dynamicData[key]) || 0), 0);
+        const total = boxes.reduce((s, b) => {
+            const qtyStr = b.dynamicData['Qty Checked'] || b.dynamicData['الكمية المفحوصة (Qty Checked)'] || b.dynamicData['الكمية المفحوصة (Qty Checked)'] || 0;
+            const parsed = parseInt(qtyStr) || 0;
+            // Fallback for cases where 'Qty Checked' label isn't reliably parsed:
+            return s + (parsed > 0 ? parsed : ((parseInt(b.ok) || 0) + (parseInt(b.nok) || 0)));
+        }, 0);
         document.getElementById('total-qty-val').textContent = total;
     },
 
     handleImageUpload(e) {
         const files = Array.from(e.target.files);
         const preview = document.getElementById('image-preview');
-        preview.innerHTML = '';
-        this.tempImages = [];
         files.forEach(f => {
             const rd = new FileReader();
             rd.onload = (ev) => {
@@ -455,9 +591,15 @@ const AppState = {
             };
             rd.readAsDataURL(f);
         });
+        e.target.value = ''; // Reset to allow same file selection
     },
 
     handleReferenceChange() {
+        const r = document.getElementById('ref-number').value.toUpperCase();
+        if (REF_MAP[r]) {
+            document.getElementById('part-name').value = REF_MAP[r];
+            AppState.flashField('part-name');
+        }
         this.switchMission();
     },
 
@@ -665,19 +807,24 @@ const ParserManager = {
     },
 
     formatDate(dateStr) {
+        if (!dateStr) return null;
         const parts = dateStr.split(/[\/\.-]/);
         if (parts.length === 3) {
-            let d = parts[0].padStart(2, '0');
-            let m = parts[1].padStart(2, '0');
-            let y = parts[2];
-            if (y.length === 2) y = "20" + y;
-            // Handle DD-MM-YYYY to YYYY-MM-DD
-            if (parseInt(d) > 31) { // Swap if year is first
-                [d, y] = [y, d];
+            let p1 = parts[0].padStart(2, '0');
+            let p2 = parts[1].padStart(2, '0');
+            let p3 = parts[2];
+
+            if (p3.length === 2) p3 = "20" + p3;
+            if (p1.length === 4) { // It's YYYY-MM-DD
+                return `${p3}/${p2}/${p1}`;
             }
-            return `${y}-${m}-${d}`;
+            if (parseInt(p1) > 31) { // Same check as above
+                return `${p3}/${p2}/${p1}`;
+            }
+            // If already DD-MM-YYYY
+            return `${p1}/${p2}/${p3}`;
         }
-        return null;
+        return dateStr;
     }
 };
 
@@ -754,8 +901,15 @@ const ExportManager = {
         const boxes = AppState.missions[AppState.currentMissionKey];
         if (!boxes || boxes.length === 0) return AppState.showToast('لا توجد بيانات (No Data)', 'info');
 
-        const vendor = document.getElementById('vendor').value;
-        const client = document.getElementById('client')?.value || '-';
+        let vendor = document.getElementById('vendor').value;
+        const rootVendor = vendor; // keep for config mapping
+        if (vendor === 'Manual') vendor = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+
+        let client = document.getElementById('client')?.value || '-';
+        if (client === 'Manual' || rootVendor === 'Manual') {
+            client = document.getElementById('manual-client-input').value.trim() || '-';
+        }
+
         const ref = document.getElementById('ref-number').value || '-';
         const inspector = document.getElementById('inspector-name').value || '-';
         const part = document.getElementById('part-name').value || '-';
@@ -776,139 +930,110 @@ const ExportManager = {
         boxes.forEach(box => box.defects.forEach(d => uniqueDefectsSet.add(d.name)));
         const uniqueDefects = Array.from(uniqueDefectsSet);
 
-        const dataKeys = this.vendorTableConfig[vendor] || this.vendorTableConfig["Default"];
+        const dataKeys = this.vendorTableConfig[rootVendor] || this.vendorTableConfig["Default"];
         const dataColCount = dataKeys.length;
         const defectColCount = uniqueDefects.length;
-
-        // Dynamic Grid Template: N° column (40px) + Data Cols + Quantities + Defects
-        const template = `40px repeat(${dataColCount}, 1fr) 60px 60px 75px ${defectColCount > 0 ? `repeat(${defectColCount}, 45px)` : ''}`;
         const templateTag = document.getElementById('final-report-template');
-        templateTag.style.setProperty('--grid-columns-template', template);
 
-        const totalPixelsEstimate = 40 + (dataColCount * 120) + 195 + (defectColCount * 45);
-        const dataPixels = 40 + (dataColCount * 120) + 195;
-        const dataSectionPercent = (dataPixels / totalPixelsEstimate) * 100;
-        templateTag.style.setProperty('--data-section-width', `${dataSectionPercent}%`);
-        templateTag.style.setProperty('--defect-section-width', `${100 - dataSectionPercent}%`);
+        // Total left column count: N° + data cols + 3 qty cols
+        const leftCount = 1 + dataColCount + 3;
+        const rightCount = defectColCount;
+        const totalCount = leftCount + rightCount;
 
-        // Ensure "List of defects" only shows if there are defect columns
-        const defectHeaderTitle = document.querySelector('.header-main-title:last-child');
-        if (defectHeaderTitle) {
-            defectHeaderTitle.style.display = defectColCount > 0 ? 'flex' : 'none';
+        // 2. APPLY DYNAMIC FLEX TO TOP CATEGORY HEADERS
+        const headerService = document.getElementById('rep-header-service');
+        const headerDefects = document.getElementById('rep-header-defects');
+
+        headerService.style.flex = `0 0 ${(leftCount / totalCount) * 100}%`;
+        headerService.textContent = 'DÉTAILS DE LA PRESTATION / SERVICE DETAILS:';
+        // The vertical border is explicitly handled 
+        headerService.style.borderRight = "1px solid #000";
+
+        if (rightCount > 0) {
+            headerDefects.style.flex = `0 0 ${(rightCount / totalCount) * 100}%`;
+            headerDefects.textContent = 'LISTE DES DÉFAUTS / LIST OF DEFECTS';
+            headerDefects.style.display = '';
+        } else {
+            headerDefects.style.display = 'none';
         }
 
-        // 4. INJECT HEADERS
-        const headerContainer = document.getElementById('rep-dynamic-column-headers');
-        headerContainer.innerHTML = '';
+        // 3. BUILD SUB-HEADER ROW
+        const subHeaderRow = document.getElementById('rep-sub-header-row');
+        subHeaderRow.innerHTML = '';
 
-        // N° Header
-        const nDiv = document.createElement('div');
-        nDiv.textContent = 'N°';
-        headerContainer.appendChild(nDiv);
-
-        // Data Headers (Bilingual Mapping)
-        const bilingualHeaderMap = {
-            "N.Etiquette": "N.Etiquette / Label",
-            "Lot Number": "N° Lot / Lot Number",
-            "Batch Number": "N° Lot / Batch Number",
-            "Date": "Date",
-            "Serial Number": "N° Série / Serial Number",
-            "Delivery Note": "BL / Delivery Note",
-            "SUT": "SUT / SUT",
-            "Package ID": "ID Colis / Package ID",
-            "Reference": "Référence / Reference"
-        };
-
-        dataKeys.forEach(key => {
-            const div = document.createElement('div');
-            div.textContent = bilingualHeaderMap[key] || key;
-            headerContainer.appendChild(div);
-        });
-
-        const qtyHeaders = [
-            { fr: 'Qté triée', en: 'Checked' },
-            { fr: 'Qté NOK', en: '' },
-            { fr: 'Qté retouchée', en: 'Reworked' }
+        const subHeaders = [
+            'N°', ...dataKeys.map(k => this.getBilingualHeader(k)),
+            'Qté triée\nChecked', 'Qté NOK', 'Qté retouchée\nReworked',
+            ...uniqueDefects
         ];
-        qtyHeaders.forEach(h => {
+        subHeaders.forEach(sh => {
             const div = document.createElement('div');
-            div.innerHTML = h.en ? `${h.fr}<br>${h.en}` : h.fr;
-            headerContainer.appendChild(div);
+            div.className = 'rep-header-col';
+            div.textContent = sh;
+            subHeaderRow.appendChild(div);
         });
 
-        uniqueDefects.forEach(defect => {
-            const div = document.createElement('div');
-            div.textContent = defect;
-            div.style.fontSize = '8px';
-            headerContainer.appendChild(div);
-        });
-
-        // 5. INJECT ROWS
-        const rowsContainer = document.getElementById('rep-grid-rows-container');
+        // 3. BUILD TABLE BODY
+        // 4. BUILD DATA ROWS (FLEX)
+        const rowsContainer = document.getElementById('rep-rows-container');
         rowsContainer.innerHTML = '';
+
         boxes.forEach((box, idx) => {
             const row = document.createElement('div');
-            row.className = `rep-grid-row ${box.isSansGalia ? 'sans-galia' : ''}`;
+            row.className = 'rep-row';
+
+            // N° Cell
+            const nCol = document.createElement('div');
+            nCol.className = 'rep-col';
+            nCol.textContent = idx + 1;
+            row.appendChild(nCol);
 
             if (box.isSansGalia) {
-                // N° Cell
-                const nCell = document.createElement('div');
-                nCell.textContent = idx + 1;
-                row.appendChild(nCell);
+                // Span ONLY the data columns (N° is already drawn)
+                const sgCell = document.createElement('div');
+                sgCell.className = 'sans-galia-cell';
+                sgCell.style.flex = `0 0 ${(dataColCount / totalCount) * 100}%`; // Absolute percentage
 
-                // Container for Merged Sans Galia (to keep black border-right)
-                const container = document.createElement('div');
-                container.style.gridColumn = `span ${dataColCount}`;
-                container.style.display = 'flex';
-                container.style.alignItems = 'center';
-                container.style.justifyContent = 'center';
-                container.style.padding = '0';
-
-                const blueBox = document.createElement('div');
-                blueBox.className = 'merged-data-cell';
-                blueBox.style.width = 'calc(100% - 12px)';
-                blueBox.style.height = 'calc(100% - 6px)';
-                blueBox.textContent = 'Sans Galia';
-                container.appendChild(blueBox);
-                row.appendChild(container);
+                const sgInner = document.createElement('div');
+                sgInner.className = 'sans-galia-inner';
+                sgInner.textContent = 'Sans Galia';
+                sgCell.appendChild(sgInner);
+                row.appendChild(sgCell);
             } else {
-                // N° Cell
-                const nCell = document.createElement('div');
-                nCell.textContent = idx + 1;
-                row.appendChild(nCell);
-
-                // Data Cells
+                // dataKeys iteration for normal rows
                 dataKeys.forEach(key => {
-                    const div = document.createElement('div');
+                    const col = document.createElement('div');
+                    col.className = 'rep-col';
                     let val = box.dynamicData[key] || '';
-                    if (key.toLowerCase().includes('date') && val && val.includes('-')) {
-                        const parts = val.split('-');
-                        if (parts.length === 3) val = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                    if (key.toLowerCase().includes('date') && val) {
+                        val = ParserManager.formatDate(val) || val;
                     }
-                    div.textContent = val;
-                    row.appendChild(div);
+                    col.textContent = val;
+                    row.appendChild(col);
                 });
             }
-
-            // Qty Cells (Shared for both modes)
+            // Qty cells
             [box.ok + box.nok, box.nok, box.reworked || 0].forEach(val => {
-                const div = document.createElement('div');
-                div.textContent = val;
-                row.appendChild(div);
+                const col = document.createElement('div');
+                col.className = 'rep-col';
+                col.textContent = val;
+                row.appendChild(col);
             });
 
-            // Defect Matrix
+            // Defect matrix
             uniqueDefects.forEach(defect => {
-                const div = document.createElement('div');
+                const col = document.createElement('div');
+                col.className = 'rep-col';
                 const dMatch = box.defects.find(d => d.name === defect);
-                div.textContent = dMatch ? dMatch.qty : '';
-                if (dMatch) div.style.backgroundColor = '#fee2e2';
-                row.appendChild(div);
+                col.textContent = dMatch ? dMatch.qty : '';
+                if (dMatch) col.style.backgroundColor = '#fee2e2';
+                row.appendChild(col);
             });
+
             rowsContainer.appendChild(row);
         });
 
-        // 6. FOOTER & GALLERY (Conditional Visibility)
+        // 4. FOOTER & GALLERY (Conditional Visibility)
         const commentsInput = document.getElementById('comments').value;
         const allComments = boxes.map(b => b.comments).filter(c => c && c.trim() !== '');
         const hasAnyComments = (commentsInput && commentsInput.trim() !== '') || allComments.length > 0;
@@ -964,7 +1089,7 @@ const ExportManager = {
                 logging: true, // Enabled for debugging as requested
                 useCORS: true,
                 allowTaint: true,
-                windowWidth: 1200,
+                windowWidth: 1600, // Sufficient for wide reports with many columns
                 windowHeight: templateTag.scrollHeight
             });
 
@@ -1011,6 +1136,32 @@ const ExportManager = {
             this.finalizeExport(canvas, vendor, dateStr);
             modal.style.display = 'none';
         };
+
+        document.getElementById('preview-wa-btn').onclick = async () => {
+            const dateFilename = dateStr.replace(/\//g, '-');
+            const filename = `Report_ABServe_${vendor}_${dateFilename}.png`;
+            try {
+                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+                const file = new File([blob], filename, { type: 'image/png' });
+
+                if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                    await navigator.share({
+                        files: [file],
+                        title: 'QA Report'
+                    });
+                    AppState.playBeep();
+                } else {
+                    AppState.showToast('مشاركة واتساب غير مدعومة على هذا الجهاز / المتصفح', 'info');
+                    const url = `https://wa.me/?text=${encodeURIComponent('QA Report')}`;
+                    window.open(url, '_blank');
+                }
+            } catch (err) {
+                console.error("WhatsApp Share Error:", err);
+                if (err.name !== 'AbortError') {
+                    AppState.showToast('خطأ أثناء المشاركة', 'danger');
+                }
+            }
+        };
     },
 
     async finalizeExport(canvas, vendor, dateStr) {
@@ -1047,6 +1198,21 @@ const ExportManager = {
         link.href = canvas.toDataURL('image/png');
         link.click();
         AppState.showToast('تم حفظ الصورة بنجاح (Image Saved)');
+    },
+
+    getBilingualHeader(key) {
+        const map = {
+            "N.Etiquette": "N.Etiquette / Label",
+            "Lot Number": "N° Lot / Lot Number",
+            "Batch Number": "N° Lot / Batch Number",
+            "Date": "Date",
+            "Serial Number": "N° Série / Serial Number",
+            "Delivery Note": "BL / Delivery Note",
+            "SUT": "SUT / SUT",
+            "Package ID": "ID Colis / Package ID",
+            "Reference": "Référence / Reference"
+        };
+        return map[key] || key;
     }
 }
 
