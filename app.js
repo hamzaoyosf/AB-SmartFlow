@@ -200,8 +200,16 @@ const AppState = {
     },
 
     collapseSetupSection() {
-        if (!this.isHeaderCollapsed) {
-            this.toggleHeader(true);
+        const header = document.querySelector('.setup-section');
+        const icon = document.getElementById('toggle-header-icon');
+        if (!header.classList.contains('collapsed')) {
+            header.classList.add('collapsed');
+            icon.textContent = '▼';
+            icon.style.transform = 'rotate(0deg)';
+            this.showToast('تم طي الإعدادات (Header Collapsed)', 'info');
+
+            // Scroll to top
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     },
 
@@ -584,10 +592,30 @@ const AppState = {
         files.forEach(f => {
             const rd = new FileReader();
             rd.onload = (ev) => {
+                const imgData = ev.target.result;
+                this.tempImages.push(imgData);
+
+                // Create container for image and delete button
+                const imgContainer = document.createElement('div');
+                imgContainer.style.position = 'relative';
+                imgContainer.style.display = 'inline-block';
+
                 const img = document.createElement('img');
-                img.src = ev.target.result; img.style.height = '60px'; img.style.borderRadius = '8px';
-                preview.appendChild(img);
-                this.tempImages.push(ev.target.result);
+                img.src = imgData;
+                img.style.height = '60px';
+                img.style.borderRadius = '8px';
+
+                const deleteBtn = document.createElement('span');
+                deleteBtn.className = 'delete-photo-btn hide-on-export data-html2canvas-ignore';
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = () => {
+                    imgContainer.remove();
+                    this.tempImages = this.tempImages.filter(src => src !== imgData);
+                };
+
+                imgContainer.appendChild(img);
+                imgContainer.appendChild(deleteBtn);
+                preview.appendChild(imgContainer);
             };
             rd.readAsDataURL(f);
         });
@@ -1055,12 +1083,40 @@ const ExportManager = {
         gallery.innerHTML = '';
         if (hasAnyImages) {
             evidenceSection.style.display = 'block';
+            gallery.innerHTML = ''; // Start clean for export
             const imagesToRender = AppState.tempImages.length > 0 ? AppState.tempImages : allImages;
             imagesToRender.forEach(imgData => {
+                const imgContainer = document.createElement('div');
+                imgContainer.style.position = 'relative';
+                imgContainer.style.display = 'inline-block';
+
                 const img = document.createElement('img');
                 img.src = imgData;
                 img.crossOrigin = "anonymous";
-                gallery.appendChild(img);
+                img.style.height = '60px';
+                img.style.borderRadius = '8px';
+
+                // Add Delete button only if previewing currently
+                const deleteBtn = document.createElement('span');
+                deleteBtn.className = 'delete-photo-btn hide-on-export';
+                deleteBtn.setAttribute('data-html2canvas-ignore', 'true');
+                deleteBtn.innerHTML = '×';
+                deleteBtn.onclick = () => {
+                    imgContainer.remove();
+                    AppState.tempImages = AppState.tempImages.filter(src => src !== imgData);
+
+                    // Remove across all boxes globally if it came from historic saves
+                    AppState.missions[AppState.currentMissionKey].forEach(box => {
+                        if (box.images) {
+                            box.images = box.images.filter(src => src !== imgData);
+                        }
+                    });
+                    AppState.saveToStorage();
+                };
+
+                imgContainer.appendChild(img);
+                imgContainer.appendChild(deleteBtn);
+                gallery.appendChild(imgContainer);
             });
         } else {
             evidenceSection.style.display = 'none';
@@ -1140,19 +1196,31 @@ const ExportManager = {
         document.getElementById('preview-wa-btn').onclick = async () => {
             const dateFilename = dateStr.replace(/\//g, '-');
             const filename = `Report_ABServe_${vendor}_${dateFilename}.png`;
+
+            // Build structured message
+            const designation = document.getElementById('part-name')?.value || '';
+            const shiftFrom = document.getElementById('shift-from')?.value || '';
+            const shiftTo = document.getElementById('shift-to')?.value || '';
+
+            const waText = `Mission: ${vendor}\nName: ${designation}\nDate: ${dateStr}\nShift: ${shiftFrom} - ${shiftTo}`;
+
             try {
+                // Ensure delete buttons are hidden before snapshot
+                document.querySelectorAll('.hide-on-export').forEach(el => el.style.display = 'none');
+
                 const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
                 const file = new File([blob], filename, { type: 'image/png' });
 
                 if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
                     await navigator.share({
                         files: [file],
-                        title: 'QA Report'
+                        title: 'QA Report',
+                        text: waText
                     });
                     AppState.playBeep();
                 } else {
                     AppState.showToast('مشاركة واتساب غير مدعومة على هذا الجهاز / المتصفح', 'info');
-                    const url = `https://wa.me/?text=${encodeURIComponent('QA Report')}`;
+                    const url = `https://wa.me/?text=${encodeURIComponent(waText)}`;
                     window.open(url, '_blank');
                 }
             } catch (err) {
@@ -1160,6 +1228,9 @@ const ExportManager = {
                 if (err.name !== 'AbortError') {
                     AppState.showToast('خطأ أثناء المشاركة', 'danger');
                 }
+            } finally {
+                // Restore delete buttons
+                document.querySelectorAll('.hide-on-export').forEach(el => el.style.display = '');
             }
         };
     },
