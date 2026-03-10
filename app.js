@@ -1194,9 +1194,6 @@ const ExportManager = {
         };
 
         document.getElementById('preview-wa-btn').onclick = async () => {
-            const dateFilename = dateStr.replace(/\//g, '-');
-            const filename = `Report_ABServe_${vendor}_${dateFilename}.png`;
-
             // Build structured message
             const designation = document.getElementById('part-name')?.value || '';
             const shiftFrom = document.getElementById('shift-from')?.value || '';
@@ -1209,9 +1206,17 @@ const ExportManager = {
                 document.querySelectorAll('.hide-on-export').forEach(el => el.style.display = 'none');
 
                 const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-                const file = new File([blob], filename, { type: 'image/png' });
+                const file = new File([blob], 'QA_Report.png', { type: 'image/png' });
 
-                if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({
+                        files: [file],
+                        title: 'QA Report',
+                        text: waText
+                    });
+                    AppState.playBeep();
+                } else if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+                    // Try without canShare just in case
                     await navigator.share({
                         files: [file],
                         title: 'QA Report',
@@ -1219,14 +1224,26 @@ const ExportManager = {
                     });
                     AppState.playBeep();
                 } else {
-                    AppState.showToast('مشاركة واتساب غير مدعومة على هذا الجهاز / المتصفح', 'info');
-                    const url = `https://wa.me/?text=${encodeURIComponent(waText)}`;
-                    window.open(url, '_blank');
+                    throw new Error("Sharing not supported");
                 }
             } catch (err) {
                 console.error("WhatsApp Share Error:", err);
                 if (err.name !== 'AbortError') {
-                    AppState.showToast('خطأ أثناء المشاركة', 'danger');
+                    AppState.showToast('تعذر المشاركة المباشرة، تم حفظ الصورة لترفقها يدوياً', 'info');
+
+                    // Fallback to manual download
+                    const url = canvas.toDataURL('image/png');
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'QA_Report.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+
+                    // Open WhatsApp manually
+                    setTimeout(() => {
+                        window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, '_blank');
+                    }, 500);
                 }
             } finally {
                 // Restore delete buttons
