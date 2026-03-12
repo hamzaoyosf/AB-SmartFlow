@@ -81,29 +81,29 @@ const AppState = {
 
     initTheme() {
         this.isDarkMode = localStorage.getItem('qa_theme') === 'dark';
-        if (this.isDarkMode) document.body.classList.add('dark-mode');
+        if (this.isDarkMode) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+            document.documentElement.setAttribute('data-theme', 'light');
+        }
+
         const themeToggleImg = document.getElementById('theme-toggle-img');
         if (themeToggleImg) {
-            if (document.body.classList.contains('dark-mode')) {
-                themeToggleImg.src = 'media/moonIcon.png';
-            } else {
-                themeToggleImg.src = 'media/sunIcon.png';
-            }
+            themeToggleImg.src = this.isDarkMode ? 'media/moonIcon.png' : 'media/sunIcon.png';
         }
     },
 
     toggleTheme() {
         this.isDarkMode = !this.isDarkMode;
-        document.body.classList.toggle('dark-mode');
-        localStorage.setItem('qa_theme', this.isDarkMode ? 'dark' : 'light');
+        const theme = this.isDarkMode ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('qa_theme', theme);
+
         this.showToast(this.isDarkMode ? "الوضع الليلي مفعّل" : "الوضع المضيء مفعّل", "info");
+
         const themeToggleImg = document.getElementById('theme-toggle-img');
         if (themeToggleImg) {
-            if (document.body.classList.contains('dark-mode')) {
-                themeToggleImg.src = 'media/moonIcon.png';
-            } else {
-                themeToggleImg.src = 'media/sunIcon.png';
-            }
+            themeToggleImg.src = this.isDarkMode ? 'media/moonIcon.png' : 'media/sunIcon.png';
         }
     },
 
@@ -126,6 +126,92 @@ const AppState = {
         localStorage.setItem('qa_missions_p8', JSON.stringify(this.missions));
         localStorage.setItem('qa_inspector', document.getElementById('inspector-name').value);
         localStorage.setItem('qa_last_vendor', document.getElementById('vendor').value);
+    },
+
+    saveDraft() {
+        try {
+            const draftData = {
+                missions: this.missions,
+                inspector: document.getElementById('inspector-name').value,
+                vendor: document.getElementById('vendor').value,
+                manualVendor: document.getElementById('manual-vendor-input')?.value || '',
+                client: document.getElementById('client')?.value || '',
+                manualClient: document.getElementById('manual-client-input')?.value || '',
+                ref: document.getElementById('ref-number').value,
+                part: document.getElementById('part-name').value,
+                shiftFrom: document.getElementById('shift-from').value,
+                shiftTo: document.getElementById('shift-to').value,
+                comments: document.getElementById('comments').value,
+                timestamp: new Date().toISOString()
+            };
+
+            const json = JSON.stringify(draftData, null, 2);
+            const blob = new Blob([json], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const now = new Date();
+            const dateStr = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${now.getFullYear()}`;
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `Draft_Report_${dateStr}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            this.showToast('تم حفظ المسودة بنجاح (Draft Saved)', 'success');
+        } catch (e) {
+            console.error('Save Draft Error:', e);
+            this.showToast('خطأ في حفظ المسودة (Error Saving Draft)', 'danger');
+        }
+    },
+
+    loadDraft(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+
+                // Update State
+                this.missions = data.missions || {};
+
+                // Update UI Fields
+                document.getElementById('inspector-name').value = data.inspector || '';
+                document.getElementById('vendor').value = data.vendor || '';
+                if (data.manualVendor) document.getElementById('manual-vendor-input').value = data.manualVendor;
+
+                // Trigger vendor change logic to set up containers and dynamic fields
+                this.handleVendorChange(data.vendor || 'One Tech');
+
+                // Continue UI updates after vendor logic
+                if (data.client) {
+                    const clientSelect = document.getElementById('client');
+                    if (clientSelect) clientSelect.value = data.client;
+                    this.handleClientChange(data.client);
+                }
+                if (data.manualClient) document.getElementById('manual-client-input').value = data.manualClient;
+
+                document.getElementById('ref-number').value = data.ref || '';
+                document.getElementById('part-name').value = data.part || '';
+                document.getElementById('shift-from').value = data.shiftFrom || '';
+                document.getElementById('shift-to').value = data.shiftTo || '';
+                document.getElementById('comments').value = data.comments || '';
+
+                // Restore History and Summaries
+                this.saveToStorage(); // Sync to localStorage
+                this.switchMission(); // This will call renderScannedList and updateTotalSummary
+
+                this.showToast('تم تحميل المسودة بنجاح (Draft Loaded)', 'success');
+
+                // Reset file input
+                event.target.value = '';
+            } catch (e) {
+                console.error('Load Draft Error:', e);
+                this.showToast('خطأ: ملف غير صالح أو تالف', 'danger');
+            }
+        };
+        reader.readAsText(file);
     },
 
     updateTime() {
@@ -155,11 +241,11 @@ const AppState = {
         const btnSaveBox = document.getElementById('btn-save-box');
         if (btnSaveBox) btnSaveBox.addEventListener('click', () => this.handleSaveAction());
 
-        const exportImgBtn = document.getElementById('export-img-btn');
-        if (exportImgBtn) exportImgBtn.addEventListener('click', () => ExportManager.exportReportAsImage());
+        const exportWaBtn = document.getElementById('export-wa-btn');
+        if (exportWaBtn) exportWaBtn.addEventListener('click', () => ExportManager.processImageExport('whatsapp'));
 
-        const exportPdfBtn = document.getElementById('export-pdf-btn');
-        if (exportPdfBtn) exportPdfBtn.addEventListener('click', () => ExportManager.generatePDF());
+        const btnShowPreview = document.getElementById('btn-show-preview');
+        if (btnShowPreview) btnShowPreview.addEventListener('click', () => ExportManager.exportReportAsImage());
 
         document.getElementById('dynamic-fields-container').addEventListener('click', (e) => {
             if (e.target.closest('.btn-icon')) {
@@ -167,6 +253,9 @@ const AppState = {
                 ScannerManager.openModal(fieldId);
             }
         });
+
+        const btnDeleteAll = document.getElementById('btn-delete-all');
+        if (btnDeleteAll) btnDeleteAll.addEventListener('click', () => this.deleteAllRecords());
 
         // Strict input rules
         document.addEventListener('input', (e) => {
@@ -197,6 +286,15 @@ const AppState = {
                 AppState.collapseSetupSection();
             }
         });
+
+        // Prevention of accidental data loss on page leave/refresh
+        window.addEventListener('beforeunload', (event) => {
+            const boxes = this.missions[this.currentMissionKey] || [];
+            if (boxes.length > 0) {
+                event.preventDefault();
+                event.returnValue = ""; // Standard requirement for modern browsers
+            }
+        });
     },
 
     collapseSetupSection() {
@@ -206,7 +304,7 @@ const AppState = {
             header.classList.add('collapsed');
             icon.textContent = '▼';
             icon.style.transform = 'rotate(0deg)';
-            this.showToast('تم طي الإعدادات (Header Collapsed)', 'info');
+            this.showToast('تم طي الإعدادات', 'info');
 
             // Scroll to top
             window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -349,7 +447,7 @@ const AppState = {
     adjustCounter(type, val) {
         const v = document.getElementById('vendor').value;
         const qtyF = FieldConfig[v]?.fields.find(f => f.triggerCalc);
-        if (!qtyF) return this.showToast('يرجى اختيار مورد أولاً', 'danger');
+        if (!qtyF) return this.showToast('يرجى اختيار المورد أولاً', 'danger');
 
         const input = document.getElementById(qtyF.id);
         const current = parseInt(input.value) || 0;
@@ -402,6 +500,21 @@ const AppState = {
     },
 
     async handleSaveAction() {
+        const btnSaveBox = document.getElementById('btn-save-box');
+        if (btnSaveBox && btnSaveBox.disabled) return;
+
+        // Visual Debounce
+        if (btnSaveBox) {
+            btnSaveBox.disabled = true;
+            btnSaveBox.style.opacity = '0.7';
+            btnSaveBox.style.cursor = 'not-allowed';
+            setTimeout(() => {
+                btnSaveBox.disabled = false;
+                btnSaveBox.style.opacity = '1';
+                btnSaveBox.style.cursor = 'pointer';
+            }, 500);
+        }
+
         const v = document.getElementById('vendor').value;
         const primary = FieldConfig[v]?.fields.find(f => f.isPrimary);
         const primaryVal = primary ? document.getElementById(primary.id).value.trim() : null;
@@ -459,11 +572,15 @@ const AppState = {
 
     captureFormData(isSansGalia = false) {
         let v = document.getElementById('vendor').value;
-        let c = document.getElementById('client')?.value;
         const rootVendor = v; // keep root vendor for FieldConfig lookup
+        let c = document.getElementById('client')?.value;
 
-        if (v === 'Manual') v = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
-        if (c === 'Manual' || rootVendor === 'Manual') c = document.getElementById('manual-client-input').value.trim() || 'Manual';
+        if (rootVendor === 'Manual') {
+            v = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+            c = document.getElementById('manual-client-input').value.trim() || 'Manual';
+        } else if (c === 'Manual') {
+            c = document.getElementById('manual-client-input').value.trim() || 'Manual';
+        }
 
         const r = document.getElementById('ref-number').value;
         if (!v || !c || !r) return this.showToast('بيانات الجلسة غير مكتملة', 'danger');
@@ -502,7 +619,7 @@ const AppState = {
         this.editingBoxId = null;
         const addBtn = document.getElementById('btn-save-box');
         if (addBtn) {
-            addBtn.innerHTML = '<img src="media/saveIcon.png" class="custom-icon" alt="Save"> حفظ الصندوق (Save)';
+            addBtn.innerHTML = '<img src="media/saveIcon.png" class="custom-icon" alt="Save"> حفظ الصندوق';
             addBtn.style.background = '';
         }
     },
@@ -510,7 +627,7 @@ const AppState = {
     renderScannedList() {
         const list = document.getElementById('scanned-list');
         const boxes = this.missions[this.currentMissionKey] || [];
-        if (boxes.length === 0) return list.innerHTML = '<div class="empty-state">لا توجد بيانات (No Data Found)</div>';
+        if (boxes.length === 0) return list.innerHTML = '<div class="empty-state">لا توجد بيانات </div>';
 
         const display = this.showAllHistory ? [...boxes] : [...boxes].slice(-5);
         list.innerHTML = display.map((box, idx) => `
@@ -531,7 +648,7 @@ const AppState = {
 
     toggleHistoryDisplay() {
         this.showAllHistory = !this.showAllHistory;
-        document.getElementById('toggle-list-btn').innerHTML = this.showAllHistory ? 'عرض الحديث (RECENT) ‹' : 'عرض الكل (VIEW ALL) ›';
+        document.getElementById('toggle-list-btn').innerHTML = this.showAllHistory ? 'عرض الحديث ‹' : 'عرض الكل ›';
         this.renderScannedList();
     },
 
@@ -555,7 +672,7 @@ const AppState = {
         this.runAutoCalc();
         const addBtn = document.getElementById('btn-save-box');
         if (addBtn) {
-            addBtn.innerHTML = '<img src="media/saveIcon.png" class="custom-icon" alt="Save"> تحديث الصندوق (Update)';
+            addBtn.innerHTML = '<img src="media/saveIcon.png" class="custom-icon" alt="Save"> تحديث الصندوق';
             addBtn.style.background = 'var(--primary-blue)';
         }
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -564,8 +681,8 @@ const AppState = {
 
     async deleteRecord(id) {
         const confirmed = await ModalManager.showConfirm(
-            'حذف (Delete)',
-            'هل أنت متأكد من حذف هذا السجل؟\n(Are you sure you want to delete this record?)'
+            'حذف',
+            'هل أنت متأكد من حذف هذا السجل؟'
         );
         if (!confirmed) return;
         this.missions[this.currentMissionKey] = this.missions[this.currentMissionKey].filter(b => b.id !== id);
@@ -573,6 +690,25 @@ const AppState = {
         this.renderScannedList();
         this.updateTotalSummary();
         this.showToast('تم الحذف بنجاح', 'info');
+    },
+
+    async deleteAllRecords() {
+        if (!this.missions[this.currentMissionKey] || this.missions[this.currentMissionKey].length === 0) {
+            return this.showToast('لا توجد سجلات لحذفها', 'info');
+        }
+
+        const confirmed = await ModalManager.showConfirm(
+            'حذف الكل',
+            'هل أنت متأكد من حذف جميع السجلات؟'
+        );
+        if (!confirmed) return;
+
+        this.missions[this.currentMissionKey] = [];
+        this.saveToStorage();
+        this.smartReset();
+        this.renderScannedList();
+        this.updateTotalSummary();
+        this.showToast('تم حذف جميع السجلات', 'danger');
     },
 
     updateTotalSummary() {
@@ -836,23 +972,36 @@ const ParserManager = {
 
     formatDate(dateStr) {
         if (!dateStr) return null;
-        const parts = dateStr.split(/[\/\.-]/);
-        if (parts.length === 3) {
-            let p1 = parts[0].padStart(2, '0');
-            let p2 = parts[1].padStart(2, '0');
-            let p3 = parts[2];
+        // Clean the string of anything not a digit or common separator
+        const cleanStr = dateStr.replace(/[^\d\/\.-]/g, '');
+        const parts = cleanStr.split(/[\/\.-]/);
 
-            if (p3.length === 2) p3 = "20" + p3;
-            if (p1.length === 4) { // It's YYYY-MM-DD
-                return `${p3}/${p2}/${p1}`;
+        if (parts.length === 3) {
+            let day, month, year;
+
+            // Handle YYYY-MM-DD (standard HTML5 date input) or DD-MM-YYYY
+            if (parts[0].length === 4) {
+                [year, month, day] = parts;
+            } else if (parts[2].length === 4) {
+                [day, month, year] = parts;
+            } else if (parts[2].length === 2) {
+                [day, month, year] = parts;
+                year = "20" + year;
+            } else {
+                return cleanStr; // Fallback
             }
-            if (parseInt(p1) > 31) { // Same check as above
-                return `${p3}/${p2}/${p1}`;
+
+            // Pad and validate
+            const d = day.padStart(2, '0');
+            const m = month.padStart(2, '0');
+            const y = year;
+
+            // Basic sanity check to prevent "2012/02/2026" type concatenation
+            if (d.length === 2 && m.length === 2 && y.length === 4) {
+                return `${d}/${m}/${y}`;
             }
-            // If already DD-MM-YYYY
-            return `${p1}/${p2}/${p3}`;
         }
-        return dateStr;
+        return cleanStr;
     }
 };
 
@@ -925,56 +1074,387 @@ const ExportManager = {
         "Default": ["Reference", "Batch Number", "Date"]
     },
 
+    chunkArray(array, size) {
+        const result = [];
+        for (let i = 0; i < array.length; i += size) {
+            result.push(array.slice(i, i + size));
+        }
+        return result;
+    },
+
+    async generatePDF() {
+        try {
+            const jsPDF = (window.jspdf && window.jspdf.jsPDF) ? window.jspdf.jsPDF : window.jsPDF;
+            if (!jsPDF) {
+                console.error("jsPDF library not found");
+                return AppState.showToast('تعذر تحميل مكتبة PDF', 'danger');
+            }
+
+            const boxes = AppState.missions[AppState.currentMissionKey];
+            if (!boxes || boxes.length === 0) return AppState.showToast('لا توجد بيانات', 'info');
+
+            const doc = new jsPDF('l', 'mm', 'a4');
+
+            let vendor = document.getElementById('vendor').value;
+            let vendorDisplay = vendor;
+            if (vendor === 'Manual') vendorDisplay = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+
+            let client = document.getElementById('client')?.value || '-';
+            let clientDisplay = client;
+            if (client === 'Manual' || vendor === 'Manual') {
+                clientDisplay = document.getElementById('manual-client-input').value.trim() || 'Manual';
+            }
+
+            const ref = document.getElementById('ref-number').value || '-';
+            const inspector = document.getElementById('inspector-name').value || '-';
+            const part = document.getElementById('part-name').value || '-';
+            const dateStr = new Date().toLocaleDateString('en-GB');
+            const shift = `${document.getElementById('shift-from').value} - ${document.getElementById('shift-to').value}`;
+
+            const chunks = this.chunkArray(boxes, 21);
+            const dataKeys = this.vendorTableConfig[vendor] || this.vendorTableConfig["Default"];
+
+            const uniqueDefectsSet = new Set();
+            boxes.forEach(box => box.defects.forEach(d => uniqueDefectsSet.add(d.name)));
+            const uniqueDefects = Array.from(uniqueDefectsSet);
+
+            const headers = [
+                'N°', ...dataKeys.map(k => this.getBilingualHeader(k)),
+                'Qté OK', 'Qté NOK', 'Retouché', ...uniqueDefects
+            ];
+
+            chunks.forEach((chunk, pageIdx) => {
+                if (pageIdx > 0) doc.addPage();
+
+                // Header Info
+                doc.setFontSize(10);
+                doc.text(`Date: ${dateStr}`, 14, 15);
+                doc.text(`Shift: ${shift}`, 14, 20);
+                doc.text(`Inspector: ${inspector}`, 14, 25);
+                doc.text(`Vendor: ${vendorDisplay}`, 140, 15);
+                doc.text(`Client: ${clientDisplay}`, 140, 20);
+                doc.text(`Reference: ${ref}`, 140, 25);
+                doc.setFontSize(14);
+                doc.text("RAPPORT D'INSPECTION - AB SERVE", 110, 10);
+
+                const tableData = chunk.map((box, idx) => {
+                    const row = [(pageIdx * 21) + idx + 1];
+
+                    if (box.isSansGalia) {
+                        row.push({ content: 'Sans Galia', colSpan: dataKeys.length, styles: { halign: 'center', fontStyle: 'bold' } });
+                    } else {
+                        dataKeys.forEach(key => {
+                            let val = box.dynamicData[key] || '';
+                            if (key.toLowerCase().includes('date') && val) val = ParserManager.formatDate(val) || val;
+                            row.push(val);
+                        });
+                    }
+
+                    row.push(box.ok + box.nok, box.nok, box.reworked || 0);
+                    uniqueDefects.forEach(dName => {
+                        const found = box.defects.find(d => d.name === dName);
+                        row.push(found ? found.qty : '');
+                    });
+                    return row;
+                });
+
+                if (typeof doc.autoTable !== 'function') {
+                    throw new Error("jsPDF-AutoTable plugin not loaded correctly");
+                }
+
+                doc.autoTable({
+                    startY: 30,
+                    head: [headers],
+                    body: tableData,
+                    theme: 'grid',
+                    styles: { fontSize: 8, cellPadding: 2, halign: 'center' },
+                    headStyles: { fillGray: 200, textColor: 0, fontStyle: 'bold' },
+                    didParseCell: function (data) {
+                        if (data.section === 'body' && data.column.index >= (1 + dataKeys.length + 1) && data.cell.text[0] !== '') {
+                            data.cell.styles.fillColor = [254, 226, 226]; // NOK red light
+                        }
+                    }
+                });
+            });
+
+            // Dedicated Media Page
+            const allImages = boxes.reduce((acc, b) => acc.concat(b.images || []), []).concat(AppState.tempImages);
+            const commentsInput = document.getElementById('comments').value;
+            const allComments = boxes.map(b => b.comments).filter(c => c && c.trim() !== '');
+            const hasComments = (commentsInput && commentsInput.trim() !== '') || allComments.length > 0;
+
+            if (allImages.length > 0 || hasComments) {
+                doc.addPage();
+                doc.setFontSize(14);
+                doc.text("MEDIA & COMMENTS", 14, 15);
+
+                let currentY = 25;
+                if (hasComments) {
+                    doc.setFontSize(10);
+                    const finalComments = commentsInput || allComments.join(' | ');
+                    doc.text("Comments:", 14, currentY);
+                    currentY += 5;
+                    const splitText = doc.splitTextToSize(finalComments, 260);
+                    doc.text(splitText, 14, currentY);
+                    currentY += (splitText.length * 5) + 10;
+                }
+
+                if (allImages.length > 0) {
+                    doc.text("Photos / Evidence:", 14, currentY);
+                    currentY += 10;
+                    let x = 14;
+                    for (const imgData of allImages) {
+                        if (x > 250) { x = 14; currentY += 50; }
+                        if (currentY > 230) { doc.addPage(); currentY = 20; x = 14; }
+                        try {
+                            const format = imgData.toLowerCase().includes('png') ? 'PNG' : 'JPEG';
+                            doc.addImage(imgData, format, x, currentY, 40, 40, undefined, 'FAST');
+                        } catch (e) {
+                            console.warn("Failed to add image to PDF", e);
+                        }
+                        x += 45;
+                    }
+                }
+            }
+
+            doc.save(`Report_ABServe_${vendorDisplay}_${dateStr.replace(/\//g, '-')}.pdf`);
+            AppState.showToast('تم حفظ ملف PDF بنجاح', 'success');
+        } catch (err) {
+            console.error("PDF Export Error:", err);
+            AppState.showToast('خطأ أثناء إنشاء ملف PDF', 'danger');
+        }
+    },
+
     async exportReportAsImage() {
+        await this.processImageExport('preview');
+    },
+
+    async processImageExport(mode) {
         const boxes = AppState.missions[AppState.currentMissionKey];
-        if (!boxes || boxes.length === 0) return AppState.showToast('لا توجد بيانات (No Data)', 'info');
+        if (!boxes || boxes.length === 0) return AppState.showToast('لا توجد بيانات', 'info');
+
+        const commentsInput = document.getElementById('comments').value;
+        const allComments = boxes.map(b => b.comments).filter(c => c && c.trim() !== '');
+        const hasComments = (commentsInput && commentsInput.trim() !== '') || allComments.length > 0;
+        const allImages = boxes.reduce((acc, b) => acc.concat(b.images || []), []).concat(AppState.tempImages);
+        const hasPhotos = allImages.length > 0;
+
+        const limit = (hasPhotos || hasComments) ? 15 : 30;
+        const chunks = this.chunkArray(boxes, limit);
 
         let vendor = document.getElementById('vendor').value;
-        const rootVendor = vendor; // keep for config mapping
-        if (vendor === 'Manual') vendor = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+        let vendorDisplay = vendor;
+        if (vendor === 'Manual') vendorDisplay = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+
+        const dateStr = new Date().toLocaleDateString('en-GB');
+        const fileArray = [];
+
+        AppState.showToast('جاري تحضير التقرير...', 'info');
+
+        for (let i = 0; i < chunks.length; i++) {
+            const isLastChunk = (i === chunks.length - 1);
+            const blob = await this.captureChunkAsBlob(chunks[i], i, chunks.length, isLastChunk);
+            const filename = `Report_Part_${i + 1}.png`;
+
+            if (mode === 'preview' && chunks.length === 1) {
+                const canvas = await this.blobToCanvas(blob);
+                this.showPreview(canvas, vendor, dateStr);
+                this.renderAllBoxesToDOM(boxes);
+                return;
+            }
+
+            const file = new File([blob], filename, { type: 'image/png' });
+            fileArray.push(file);
+
+            if (mode === 'download' || (mode === 'preview' && chunks.length > 1)) {
+                this.downloadBlob(blob, filename);
+            }
+        }
+
+        this.renderAllBoxesToDOM(boxes);
+
+        if (mode === 'whatsapp') {
+            await this.executeWhatsAppShare(fileArray);
+        } else if (chunks.length > 1) {
+            AppState.showToast('تم تحميل أجزاء التقرير بنجاح', 'success');
+        }
+    },
+
+    async captureChunkAsBlob(chunk, index, totalChunks, isLastChunk) {
+        const uniqueDefectsSet = new Set();
+        const allBoxes = AppState.missions[AppState.currentMissionKey];
+        allBoxes.forEach(box => box.defects.forEach(d => uniqueDefectsSet.add(d.name)));
+        const uniqueDefects = Array.from(uniqueDefectsSet);
+
+        this.setupReportBasics(allBoxes, uniqueDefects);
+        this.renderSpecificRows(chunk, uniqueDefects, index * chunk.length);
+
+        const reportFooter = document.querySelector('.rep-footer');
+        const commentsSection = document.querySelector('.rep-footer-top');
+        const evidenceSection = document.querySelector('.rep-evidence-section');
+
+        if (isLastChunk) {
+            reportFooter.style.display = 'block';
+            const commentsInput = document.getElementById('comments').value;
+            const allComments = allBoxes.map(b => b.comments).filter(c => c && c.trim() !== '');
+            const hasAnyComments = (commentsInput && commentsInput.trim() !== '') || allComments.length > 0;
+            commentsSection.style.display = hasAnyComments ? 'block' : 'none';
+            if (hasAnyComments) document.getElementById('rep-comments-val').textContent = commentsInput || allComments.join(' | ');
+
+            const allImages = allBoxes.reduce((acc, b) => acc.concat(b.images || []), []).concat(AppState.tempImages);
+            evidenceSection.style.display = allImages.length > 0 ? 'block' : 'none';
+            if (allImages.length > 0) {
+                const gallery = document.getElementById('rep-gallery');
+                gallery.innerHTML = '';
+                allImages.forEach(imgData => {
+                    const img = document.createElement('img');
+                    img.src = imgData;
+                    img.style.height = '60px';
+                    img.style.borderRadius = '8px';
+                    img.style.margin = '5px';
+                    gallery.appendChild(img);
+                });
+            }
+        } else {
+            reportFooter.style.display = 'none';
+        }
+
+        const templateTag = document.getElementById('final-report-template');
+        templateTag.style.position = 'absolute';
+        templateTag.style.left = '-9999px';
+        templateTag.style.top = '0';
+        templateTag.style.visibility = 'visible';
+
+        try {
+            await this.waitForImages(templateTag);
+            const canvas = await html2canvas(templateTag, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                useCORS: true,
+                allowTaint: true,
+                windowWidth: 1600,
+                windowHeight: templateTag.scrollHeight
+            });
+            return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        } finally {
+            templateTag.style.visibility = 'hidden';
+            templateTag.style.top = '-9999px';
+        }
+    },
+
+    async executeWhatsAppShare(fileArray) {
+        let vendor = document.getElementById('vendor').value;
+        let vendorDisplay = vendor;
+        if (vendor === 'Manual') vendorDisplay = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+
+        let client = document.getElementById('client')?.value;
+        let clientDisplay = client;
+        if (client === 'Manual' || vendor === 'Manual') {
+            clientDisplay = document.getElementById('manual-client-input').value.trim() || 'Manual';
+        }
+
+        const designation = document.getElementById('part-name')?.value || '';
+        const dateStr = new Date().toLocaleDateString('en-GB');
+        const shiftFrom = document.getElementById('shift-from')?.value || '';
+        const shiftTo = document.getElementById('shift-to')?.value || '';
+        const waText = `Mission: ${vendorDisplay}\nClient: ${clientDisplay}\nName: ${designation}\nDate: ${dateStr}\nShift: ${shiftFrom} - ${shiftTo}`;
+
+        if (navigator.share && navigator.canShare && navigator.canShare({ files: fileArray })) {
+            try {
+                await navigator.share({
+                    files: fileArray,
+                    title: 'QA Report',
+                    text: waText
+                });
+                AppState.playBeep();
+            } catch (err) {
+                console.error("WhatsApp Multi-Share Error:", err);
+                AppState.showToast('فشل في مشاركة الملفات', 'danger');
+            }
+        } else {
+            AppState.showToast('المتصفح لا يدعم مشاركة الملفات المتعددة', 'warning');
+            // Fallback: download all
+            fileArray.forEach(file => {
+                const url = URL.createObjectURL(file);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name;
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        }
+    },
+
+    blobToCanvas(blob) {
+        return new Promise(resolve => {
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                URL.revokeObjectURL(url);
+                resolve(canvas);
+            };
+            img.src = url;
+        });
+    },
+
+    downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+    },
+
+    renderAllBoxesToDOM(boxes) {
+        const uniqueDefectsSet = new Set();
+        boxes.forEach(box => box.defects.forEach(d => uniqueDefectsSet.add(d.name)));
+        const uniqueDefects = Array.from(uniqueDefectsSet);
+        this.setupReportBasics(boxes, uniqueDefects);
+        this.renderSpecificRows(boxes, uniqueDefects, 0);
+        document.querySelector('.rep-footer').style.display = 'block';
+    },
+
+    setupReportBasics(boxes, uniqueDefects) {
+        let vendor = document.getElementById('vendor').value;
+        const rootVendor = vendor;
+        let vendorDisplay = vendor;
+        if (vendor === 'Manual') vendorDisplay = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
 
         let client = document.getElementById('client')?.value || '-';
-        if (client === 'Manual' || rootVendor === 'Manual') {
-            client = document.getElementById('manual-client-input').value.trim() || '-';
+        let clientDisplay = client;
+        if (client === 'Manual' || vendor === 'Manual') {
+            clientDisplay = document.getElementById('manual-client-input').value.trim() || 'Manual';
         }
 
         const ref = document.getElementById('ref-number').value || '-';
         const inspector = document.getElementById('inspector-name').value || '-';
         const part = document.getElementById('part-name').value || '-';
-        const now = new Date();
-        const dateStr = now.toLocaleDateString('en-GB');
+        const dateStr = new Date().toLocaleDateString('en-GB');
 
-        // 1. POPULATE TEMPLATE (HIDDEN)
         document.getElementById('rep-date-val').textContent = dateStr;
         document.getElementById('rep-shift-start').textContent = document.getElementById('shift-from').value;
         document.getElementById('rep-shift-end').textContent = document.getElementById('shift-to').value;
         document.getElementById('rep-inspector-val').textContent = inspector;
-        document.getElementById('rep-client-val').textContent = client;
-        document.getElementById('rep-vendor-val').textContent = vendor;
+        document.getElementById('rep-client-val').textContent = clientDisplay;
+        document.getElementById('rep-vendor-val').textContent = vendorDisplay;
         document.getElementById('rep-ref-val').textContent = ref;
         document.getElementById('rep-part-val').textContent = part;
 
-        const uniqueDefectsSet = new Set();
-        boxes.forEach(box => box.defects.forEach(d => uniqueDefectsSet.add(d.name)));
-        const uniqueDefects = Array.from(uniqueDefectsSet);
-
         const dataKeys = this.vendorTableConfig[rootVendor] || this.vendorTableConfig["Default"];
-        const dataColCount = dataKeys.length;
-        const defectColCount = uniqueDefects.length;
-        const templateTag = document.getElementById('final-report-template');
-
-        // Total left column count: N° + data cols + 3 qty cols
-        const leftCount = 1 + dataColCount + 3;
-        const rightCount = defectColCount;
+        const leftCount = 1 + dataKeys.length + 3;
+        const rightCount = uniqueDefects.length;
         const totalCount = leftCount + rightCount;
 
-        // 2. APPLY DYNAMIC FLEX TO TOP CATEGORY HEADERS
         const headerService = document.getElementById('rep-header-service');
         const headerDefects = document.getElementById('rep-header-defects');
-
         headerService.style.flex = `0 0 ${(leftCount / totalCount) * 100}%`;
         headerService.textContent = 'DÉTAILS DE LA PRESTATION / SERVICE DETAILS:';
-        // The vertical border is explicitly handled 
         headerService.style.borderRight = "1px solid #000";
 
         if (rightCount > 0) {
@@ -985,10 +1465,8 @@ const ExportManager = {
             headerDefects.style.display = 'none';
         }
 
-        // 3. BUILD SUB-HEADER ROW
         const subHeaderRow = document.getElementById('rep-sub-header-row');
         subHeaderRow.innerHTML = '';
-
         const subHeaders = [
             'N°', ...dataKeys.map(k => this.getBilingualHeader(k)),
             'Qté triée\nChecked', 'Qté NOK', 'Qté retouchée\nReworked',
@@ -1000,47 +1478,43 @@ const ExportManager = {
             div.textContent = sh;
             subHeaderRow.appendChild(div);
         });
+    },
 
-        // 3. BUILD TABLE BODY
-        // 4. BUILD DATA ROWS (FLEX)
+    renderSpecificRows(chunkRows, uniqueDefects, offset) {
+        const vendor = document.getElementById('vendor').value;
+        const dataKeys = this.vendorTableConfig[vendor] || this.vendorTableConfig["Default"];
+        const totalCount = 1 + dataKeys.length + 3 + uniqueDefects.length;
         const rowsContainer = document.getElementById('rep-rows-container');
         rowsContainer.innerHTML = '';
 
-        boxes.forEach((box, idx) => {
+        chunkRows.forEach((box, idx) => {
             const row = document.createElement('div');
             row.className = 'rep-row';
-
-            // N° Cell
             const nCol = document.createElement('div');
             nCol.className = 'rep-col';
-            nCol.textContent = idx + 1;
+            nCol.textContent = offset + idx + 1;
             row.appendChild(nCol);
 
             if (box.isSansGalia) {
-                // Span ONLY the data columns (N° is already drawn)
                 const sgCell = document.createElement('div');
                 sgCell.className = 'sans-galia-cell';
-                sgCell.style.flex = `0 0 ${(dataColCount / totalCount) * 100}%`; // Absolute percentage
-
+                sgCell.style.flex = `0 0 ${(dataKeys.length / totalCount) * 100}%`;
                 const sgInner = document.createElement('div');
                 sgInner.className = 'sans-galia-inner';
                 sgInner.textContent = 'Sans Galia';
                 sgCell.appendChild(sgInner);
                 row.appendChild(sgCell);
             } else {
-                // dataKeys iteration for normal rows
                 dataKeys.forEach(key => {
                     const col = document.createElement('div');
                     col.className = 'rep-col';
                     let val = box.dynamicData[key] || '';
-                    if (key.toLowerCase().includes('date') && val) {
-                        val = ParserManager.formatDate(val) || val;
-                    }
+                    if (key.toLowerCase().includes('date') && val) val = ParserManager.formatDate(val) || val;
                     col.textContent = val;
                     row.appendChild(col);
                 });
             }
-            // Qty cells
+
             [box.ok + box.nok, box.nok, box.reworked || 0].forEach(val => {
                 const col = document.createElement('div');
                 col.className = 'rep-col';
@@ -1048,7 +1522,6 @@ const ExportManager = {
                 row.appendChild(col);
             });
 
-            // Defect matrix
             uniqueDefects.forEach(defect => {
                 const col = document.createElement('div');
                 col.className = 'rep-col';
@@ -1057,108 +1530,8 @@ const ExportManager = {
                 if (dMatch) col.style.backgroundColor = '#fee2e2';
                 row.appendChild(col);
             });
-
             rowsContainer.appendChild(row);
         });
-
-        // 4. FOOTER & GALLERY (Conditional Visibility)
-        const commentsInput = document.getElementById('comments').value;
-        const allComments = boxes.map(b => b.comments).filter(c => c && c.trim() !== '');
-        const hasAnyComments = (commentsInput && commentsInput.trim() !== '') || allComments.length > 0;
-
-        const allImages = boxes.reduce((acc, b) => acc.concat(b.images || []), []);
-        const hasAnyImages = AppState.tempImages.length > 0 || allImages.length > 0;
-
-        const commentsSection = document.querySelector('.rep-footer-top');
-        const commentsVal = document.getElementById('rep-comments-val');
-        if (hasAnyComments) {
-            commentsSection.style.display = 'block';
-            commentsVal.textContent = commentsInput || allComments.join(' | ');
-        } else {
-            commentsSection.style.display = 'none';
-        }
-
-        const evidenceSection = document.querySelector('.rep-evidence-section');
-        const gallery = document.getElementById('rep-gallery');
-        gallery.innerHTML = '';
-        if (hasAnyImages) {
-            evidenceSection.style.display = 'block';
-            gallery.innerHTML = ''; // Start clean for export
-            const imagesToRender = AppState.tempImages.length > 0 ? AppState.tempImages : allImages;
-            imagesToRender.forEach(imgData => {
-                const imgContainer = document.createElement('div');
-                imgContainer.style.position = 'relative';
-                imgContainer.style.display = 'inline-block';
-
-                const img = document.createElement('img');
-                img.src = imgData;
-                img.crossOrigin = "anonymous";
-                img.style.height = '60px';
-                img.style.borderRadius = '8px';
-
-                // Add Delete button only if previewing currently
-                const deleteBtn = document.createElement('span');
-                deleteBtn.className = 'delete-photo-btn hide-on-export';
-                deleteBtn.setAttribute('data-html2canvas-ignore', 'true');
-                deleteBtn.innerHTML = '×';
-                deleteBtn.onclick = () => {
-                    imgContainer.remove();
-                    AppState.tempImages = AppState.tempImages.filter(src => src !== imgData);
-
-                    // Remove across all boxes globally if it came from historic saves
-                    AppState.missions[AppState.currentMissionKey].forEach(box => {
-                        if (box.images) {
-                            box.images = box.images.filter(src => src !== imgData);
-                        }
-                    });
-                    AppState.saveToStorage();
-                };
-
-                imgContainer.appendChild(img);
-                imgContainer.appendChild(deleteBtn);
-                gallery.appendChild(imgContainer);
-            });
-        } else {
-            evidenceSection.style.display = 'none';
-        }
-
-        // Hide entire footer if both are empty
-        const reportFooter = document.querySelector('.rep-footer');
-        reportFooter.style.display = (hasAnyComments || hasAnyImages) ? 'block' : 'none';
-
-        // 2. CAPTURE FOR PREVIEW
-        AppState.showToast('جاري تحضير المعاينة (Preparing Preview)...', 'info');
-
-        // Ensure template is rendered but keeps its off-screen position
-        templateTag.style.position = 'absolute';
-        templateTag.style.left = '-9999px';
-        templateTag.style.top = '0';
-        templateTag.style.visibility = 'visible';
-
-        try {
-            // Wait for all images in the template to load before capture
-            await this.waitForImages(templateTag);
-
-            const canvas = await html2canvas(templateTag, {
-                backgroundColor: '#ffffff',
-                scale: 2,
-                logging: true, // Enabled for debugging as requested
-                useCORS: true,
-                allowTaint: true,
-                windowWidth: 1600, // Sufficient for wide reports with many columns
-                windowHeight: templateTag.scrollHeight
-            });
-
-            templateTag.style.visibility = 'hidden';
-            templateTag.style.top = '-9999px';
-
-            this.showPreview(canvas, vendor, dateStr);
-        } catch (err) {
-            console.error("Preview Error:", err);
-            AppState.showToast('خطأ أثناء تحضير المعاينة', 'danger');
-            templateTag.style.visibility = 'hidden';
-            templateTag.style.top = '-9999px';
-        }
     },
 
     waitForImages(container) {
@@ -1188,73 +1561,34 @@ const ExportManager = {
             modal.style.display = 'none';
         };
 
-        document.getElementById('preview-save-btn').onclick = () => {
-            this.finalizeExport(canvas, vendor, dateStr);
+        const pdfBtn = document.getElementById('preview-pdf-btn');
+        if (pdfBtn) {
+            pdfBtn.onclick = () => {
+                modal.style.display = 'none';
+                this.generatePDF();
+            };
+        }
+
+        const imgBtn = document.getElementById('preview-img-btn');
+        if (imgBtn) {
+            imgBtn.onclick = () => {
+                this.finalizeExport(canvas, vendor, dateStr);
+                modal.style.display = 'none';
+            };
+        }
+
+        document.getElementById('preview-wa-btn').onclick = () => {
             modal.style.display = 'none';
-        };
-
-        document.getElementById('preview-wa-btn').onclick = async () => {
-            // Build structured message
-            const designation = document.getElementById('part-name')?.value || '';
-            const shiftFrom = document.getElementById('shift-from')?.value || '';
-            const shiftTo = document.getElementById('shift-to')?.value || '';
-
-            const waText = `Mission: ${vendor}\nName: ${designation}\nDate: ${dateStr}\nShift: ${shiftFrom} - ${shiftTo}`;
-
-            try {
-                // Ensure delete buttons are hidden before snapshot
-                document.querySelectorAll('.hide-on-export').forEach(el => el.style.display = 'none');
-
-                const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-                const file = new File([blob], 'QA_Report.png', { type: 'image/png' });
-
-                if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-                    await navigator.share({
-                        files: [file],
-                        title: 'QA Report',
-                        text: waText
-                    });
-                    AppState.playBeep();
-                } else if (navigator.share && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-                    // Try without canShare just in case
-                    await navigator.share({
-                        files: [file],
-                        title: 'QA Report',
-                        text: waText
-                    });
-                    AppState.playBeep();
-                } else {
-                    throw new Error("Sharing not supported");
-                }
-            } catch (err) {
-                console.error("WhatsApp Share Error:", err);
-                if (err.name !== 'AbortError') {
-                    AppState.showToast('تعذر المشاركة المباشرة، تم حفظ الصورة لترفقها يدوياً', 'info');
-
-                    // Fallback to manual download
-                    const url = canvas.toDataURL('image/png');
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = 'QA_Report.png';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-
-                    // Open WhatsApp manually
-                    setTimeout(() => {
-                        window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, '_blank');
-                    }, 500);
-                }
-            } finally {
-                // Restore delete buttons
-                document.querySelectorAll('.hide-on-export').forEach(el => el.style.display = '');
-            }
+            this.processImageExport('whatsapp');
         };
     },
 
     async finalizeExport(canvas, vendor, dateStr) {
+        let vendorDisplay = vendor;
+        if (vendor === 'Manual') vendorDisplay = document.getElementById('manual-vendor-input').value.trim() || 'Manual';
+
         const dateFilename = dateStr.replace(/\//g, '-');
-        const filename = `Report_ABServe_${vendor}_${dateFilename}.png`;
+        const filename = `Report_ABServe_${vendorDisplay}_${dateFilename}.png`;
 
         try {
             const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
@@ -1285,7 +1619,7 @@ const ExportManager = {
         link.download = filename;
         link.href = canvas.toDataURL('image/png');
         link.click();
-        AppState.showToast('تم حفظ الصورة بنجاح (Image Saved)');
+        AppState.showToast('تم حفظ الصورة بنجاح');
     },
 
     getBilingualHeader(key) {
